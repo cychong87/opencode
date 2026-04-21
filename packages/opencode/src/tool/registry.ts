@@ -11,6 +11,13 @@ import { CheckTaskTool } from "./check-task"
 import { StopTaskTool } from "./stop-task"
 import { SendMessageTool } from "./send-message"
 import { CheckMailboxTool } from "./check-mailbox"
+import { TeamCreateTool } from "./team-create"
+import { TeamDeleteTool } from "./team-delete"
+import { SpawnWorkerTool } from "./spawn-worker"
+import { TerminateWorkerTool } from "./terminate-worker"
+import { TeamTaskCreateTool } from "./team-task-create"
+import { TeamTaskListTool } from "./team-task-list"
+import { TeamTaskUpdateTool } from "./team-task-update"
 import { TodoWriteTool } from "./todo"
 import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
@@ -121,6 +128,13 @@ export const layer: Layer.Layer<
     const stopTask = yield* StopTaskTool
     const sendMessage = yield* SendMessageTool
     const checkMailbox = yield* CheckMailboxTool
+    const teamCreate = yield* TeamCreateTool
+    const teamDelete = yield* TeamDeleteTool
+    const spawnWorker = yield* SpawnWorkerTool
+    const terminateWorker = yield* TerminateWorkerTool
+    const teamTaskCreate = yield* TeamTaskCreateTool
+    const teamTaskList = yield* TeamTaskListTool
+    const teamTaskUpdate = yield* TeamTaskUpdateTool
     const agent = yield* Agent.Service
 
     const state = yield* InstanceState.make<State>(
@@ -206,6 +220,13 @@ export const layer: Layer.Layer<
           stopTask: Tool.init(stopTask),
           sendMessage: Tool.init(sendMessage),
           checkMailbox: Tool.init(checkMailbox),
+          teamCreate: Tool.init(teamCreate),
+          teamDelete: Tool.init(teamDelete),
+          spawnWorker: Tool.init(spawnWorker),
+          terminateWorker: Tool.init(terminateWorker),
+          teamTaskCreate: Tool.init(teamTaskCreate),
+          teamTaskList: Tool.init(teamTaskList),
+          teamTaskUpdate: Tool.init(teamTaskUpdate),
         })
 
         return {
@@ -230,6 +251,13 @@ export const layer: Layer.Layer<
             tool.stopTask,
             tool.sendMessage,
             tool.checkMailbox,
+            tool.teamCreate,
+            tool.teamDelete,
+            tool.spawnWorker,
+            tool.terminateWorker,
+            tool.teamTaskCreate,
+            tool.teamTaskList,
+            tool.teamTaskUpdate,
             ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [tool.lsp] : []),
             ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [tool.plan] : []),
           ],
