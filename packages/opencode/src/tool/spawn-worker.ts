@@ -75,10 +75,14 @@ export const SpawnWorkerTool = Tool.define(
               ? { modelID: msg.info.modelID, providerID: msg.info.providerID }
               : undefined
 
+          // Capture the current project directory so workers operate in the right location
+          const projectDir = yield* InstanceState.directory
+
           // Fork the worker lifecycle loop in the background
           ops.fork(
             Effect.gen(function* () {
-              let currentPrompt: string | undefined = params.prompt
+              const dirPrefix = `IMPORTANT: You are working in the project at ${projectDir}. All file paths are relative to this directory. Before running any commands, first run: cd ${projectDir}\n\n`
+              let currentPrompt: string | undefined = dirPrefix + params.prompt
 
               while (true) {
                 if (currentPrompt) {
@@ -121,7 +125,7 @@ export const SpawnWorkerTool = Tool.define(
                   }
 
                   if (inboxMsg.type === "task_assignment" || inboxMsg.type === "plain") {
-                    currentPrompt = inboxMsg.content
+                    currentPrompt = dirPrefix + inboxMsg.content
                     break // break inner for, continue outer while
                   }
                 }
