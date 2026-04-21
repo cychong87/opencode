@@ -9,6 +9,8 @@ import { ReadTool } from "./read"
 import { TaskTool } from "./task"
 import { CheckTaskTool } from "./check-task"
 import { StopTaskTool } from "./stop-task"
+import { SendMessageTool } from "./send-message"
+import { CheckMailboxTool } from "./check-mailbox"
 import { TodoWriteTool } from "./todo"
 import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
@@ -117,6 +119,8 @@ export const layer: Layer.Layer<
     const skilltool = yield* SkillTool
     const checkTask = yield* CheckTaskTool
     const stopTask = yield* StopTaskTool
+    const sendMessage = yield* SendMessageTool
+    const checkMailbox = yield* CheckMailboxTool
     const agent = yield* Agent.Service
 
     const state = yield* InstanceState.make<State>(
@@ -200,6 +204,8 @@ export const layer: Layer.Layer<
           plan: Tool.init(plan),
           checkTask: Tool.init(checkTask),
           stopTask: Tool.init(stopTask),
+          sendMessage: Tool.init(sendMessage),
+          checkMailbox: Tool.init(checkMailbox),
         })
 
         return {
@@ -222,6 +228,8 @@ export const layer: Layer.Layer<
             tool.patch,
             tool.checkTask,
             tool.stopTask,
+            tool.sendMessage,
+            tool.checkMailbox,
             ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [tool.lsp] : []),
             ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [tool.plan] : []),
           ],
