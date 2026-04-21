@@ -12,9 +12,15 @@ import { InstanceState } from "../effect"
 const id = "spawn_worker"
 
 const parameters = z.object({
-  name: z.string().describe('Worker name (e.g., "researcher", "implementer")'),
+  name: z
+    .string()
+    .regex(/^[a-zA-Z0-9_-]+$/, "Worker name must be alphanumeric (with hyphens/underscores, no @ symbol)")
+    .describe('Worker name (e.g., "researcher", "implementer")'),
   prompt: z.string().describe("Initial task/instructions for the worker"),
-  team_name: z.string().describe("Team to add the worker to"),
+  team_name: z
+    .string()
+    .regex(/^[a-zA-Z0-9_-]+$/, "Team name must be alphanumeric (with hyphens/underscores, no @ symbol)")
+    .describe("Team to add the worker to"),
   agent_type: z.string().optional().describe("Agent type for the worker (e.g., 'general', 'explore'). Default: 'general'"),
 })
 

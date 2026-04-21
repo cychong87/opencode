@@ -99,7 +99,8 @@ export function createTeamService(baseDir: string): TeamService {
       using _ = await Lock.write(lockKey(teamName))
       const team = await loadTeam(teamName)
       const member = team.members.find((m) => m.agentID === agentID)
-      if (member) member.status = status
+      if (!member) throw new Error(`Member ${agentID} not found in team ${teamName}`)
+      member.status = status
       await saveTeam(teamName, team)
     },
 
@@ -110,7 +111,10 @@ export function createTeamService(baseDir: string): TeamService {
     },
 
     async delete(teamName) {
-      const hasActive = await this.hasActiveMembers(teamName)
+      // Atomic check-and-delete under write lock to prevent TOCTOU race
+      using _ = await Lock.write(lockKey(teamName))
+      const team = await loadTeam(teamName)
+      const hasActive = team.members.some((m) => m.status === "active" || m.status === "idle")
       if (hasActive) throw new Error(`Cannot delete team ${teamName}: has active members. Terminate all workers first.`)
       const { rm } = await import("fs/promises")
       await rm(teamDir(teamName), { recursive: true, force: true })

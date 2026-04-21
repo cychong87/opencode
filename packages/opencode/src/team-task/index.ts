@@ -33,7 +33,7 @@ export interface TeamTaskService {
 }
 
 function generateTaskID(): string {
-  return `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+  return `task-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 export function createTeamTaskService(baseDir: string): TeamTaskService {

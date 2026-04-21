@@ -37,13 +37,14 @@ export const TerminateWorkerTool = Tool.define(
             }),
           )
 
-          // Also mark as killed in team file in case the worker doesn't process the message
-          yield* Effect.promise(() => teams.updateStatus(params.team_name, agentID, "killed"))
+          // Do NOT set status to "killed" here — let the worker set its own terminal status
+          // ("completed") when it processes the shutdown_request. This avoids a race condition
+          // where hasActiveMembers returns false while the worker is still executing.
 
           return {
-            title: `Worker terminated: ${params.name}`,
+            title: `Worker termination requested: ${params.name}`,
             metadata: {},
-            output: `Shutdown request sent to ${agentID}. Worker status set to killed.`,
+            output: `Shutdown request sent to ${agentID}. The worker will stop after finishing its current task.`,
           }
         }).pipe(Effect.orDie),
     }

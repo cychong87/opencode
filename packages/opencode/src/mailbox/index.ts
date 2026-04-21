@@ -62,7 +62,7 @@ export interface MailboxService {
 // ── File-Based Implementation ──
 
 function generateID(): string {
-  return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+  return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 export function createMailbox(baseDir: string): MailboxService {
