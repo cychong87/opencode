@@ -13,6 +13,7 @@ import PROMPT_COMPACTION from "./prompt/compaction.txt"
 import PROMPT_EXPLORE from "./prompt/explore.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
+import PROMPT_COORDINATOR from "./prompt/coordinator.txt"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@/global"
@@ -230,6 +231,34 @@ export const layer = Layer.effect(
               user,
             ),
             prompt: PROMPT_SUMMARY,
+          },
+          coordinator: {
+            name: "coordinator",
+            description:
+              "Team coordinator that orchestrates multiple worker agents for complex parallel tasks. Use when a task has 3+ independent subtasks or touches 5+ files across multiple packages.",
+            mode: "primary",
+            native: true,
+            options: {},
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                team_create: "allow",
+                team_delete: "allow",
+                spawn_worker: "allow",
+                terminate_worker: "allow",
+                send_message: "allow",
+                check_mailbox: "allow",
+                check_task: "allow",
+                stop_task: "allow",
+                team_task_create: "allow",
+                team_task_list: "allow",
+                team_task_update: "allow",
+                task: "allow",
+                question: "allow",
+              }),
+              user,
+            ),
+            prompt: PROMPT_COORDINATOR,
           },
         }
 
