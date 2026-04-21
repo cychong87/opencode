@@ -13,6 +13,7 @@ export interface TaskPromptOps {
   cancel(sessionID: SessionID): void
   resolvePromptParts(template: string): Effect.Effect<SessionPrompt.PromptInput["parts"]>
   prompt(input: SessionPrompt.PromptInput): Effect.Effect<MessageV2.WithParts>
+  fork<A, E, R>(effect: Effect.Effect<A, E, R>): void
 }
 
 const id = "task"
@@ -28,6 +29,12 @@ const parameters = z.object({
     )
     .optional(),
   command: z.string().describe("The command that triggered this task").optional(),
+  run_in_background: z
+    .boolean()
+    .describe(
+      "Set to true to run the task in the background. Returns immediately with a task_id. Use check_task with this task_id to get results later. Use stop_task to cancel.",
+    )
+    .optional(),
 })
 
 export const TaskTool = Tool.define(
@@ -115,6 +122,44 @@ export const TaskTool = Tool.define(
       const ops = ctx.extra?.promptOps as TaskPromptOps
       if (!ops) return yield* Effect.fail(new Error("TaskTool requires promptOps in ctx.extra"))
 
+      // Background execution: fork the child agent and return immediately
+      if (params.run_in_background) {
+        ops.fork(
+          Effect.gen(function* () {
+            const parts = yield* ops.resolvePromptParts(params.prompt)
+            yield* ops.prompt({
+              messageID: MessageID.ascending(),
+              sessionID: nextSession.id,
+              model: {
+                modelID: model.modelID,
+                providerID: model.providerID,
+              },
+              agent: next.name,
+              tools: {
+                ...(canTodo ? {} : { todowrite: false }),
+                ...(canTask ? {} : { task: false }),
+                ...Object.fromEntries((cfg.experimental?.primary_tools ?? []).map((item) => [item, false])),
+              },
+              parts,
+            })
+          }).pipe(Effect.catchCause(() => Effect.logError(`Background task failed for session ${nextSession.id}`))),
+        )
+
+        return {
+          title: params.description,
+          metadata: {
+            sessionId: nextSession.id,
+            model,
+          },
+          output: [
+            `Task launched in background.`,
+            `task_id: ${nextSession.id}`,
+            `Use check_task with this task_id to get results later, or stop_task to cancel.`,
+          ].join("\n"),
+        }
+      }
+
+      // Foreground execution: block until child completes (existing behavior)
       const messageID = MessageID.ascending()
 
       function cancel() {

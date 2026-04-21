@@ -7,6 +7,8 @@ import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
 import { ReadTool } from "./read"
 import { TaskTool } from "./task"
+import { CheckTaskTool } from "./check-task"
+import { StopTaskTool } from "./stop-task"
 import { TodoWriteTool } from "./todo"
 import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
@@ -113,6 +115,8 @@ export const layer: Layer.Layer<
     const greptool = yield* GrepTool
     const patchtool = yield* ApplyPatchTool
     const skilltool = yield* SkillTool
+    const checkTask = yield* CheckTaskTool
+    const stopTask = yield* StopTaskTool
     const agent = yield* Agent.Service
 
     const state = yield* InstanceState.make<State>(
@@ -194,6 +198,8 @@ export const layer: Layer.Layer<
           question: Tool.init(question),
           lsp: Tool.init(lsptool),
           plan: Tool.init(plan),
+          checkTask: Tool.init(checkTask),
+          stopTask: Tool.init(stopTask),
         })
 
         return {
@@ -214,6 +220,8 @@ export const layer: Layer.Layer<
             tool.code,
             tool.skill,
             tool.patch,
+            tool.checkTask,
+            tool.stopTask,
             ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [tool.lsp] : []),
             ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [tool.plan] : []),
           ],

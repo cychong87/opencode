@@ -19,6 +19,8 @@ Usage notes:
 4. The agent's outputs should generally be trusted
 5. Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent. Tell it how to verify its work if possible (e.g., relevant test commands).
 6. If the agent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement.
+7. Set run_in_background to true to launch the task asynchronously. The tool returns immediately with a task_id. Use check_task with this task_id to get results later, or stop_task to cancel.
+8. Background tasks are useful when you need multiple independent searches or operations in parallel — launch several background tasks, then check_task each one.
 
 Example usage (NOTE: The agents below are fictional examples for illustration only - use the actual agents listed above):
 
