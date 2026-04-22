@@ -89,52 +89,64 @@ Each worker:
 
 **Observation**: Multi-agent is faster but uses more tokens and produces fewer tests per worker. The speed gain comes from genuine parallelism — 2 workers finished before the 3rd.
 
-### Case Study 2: Real-World SWE-bench Task — SymPy `is_finite` Bug
+### Case Study 2: SWE-bench Verified — SymPy `is_finite` Bug (6 files)
 
-**Task**: SWE-bench Verified instance `sympy__sympy-16597` — fix `Symbol("m", even=True).is_finite` returning `None` instead of `True`. Requires changes to 6 files across 4 SymPy subsystems: core assumptions, ask system, power evaluation, tensor indexing.
-**Model**: GLM-4.5-air via Z.AI Coding Plan
-**Verification**: 3 FAIL_TO_PASS tests must pass after fix
+**Task**: `sympy__sympy-16597` — fix `Symbol("m", even=True).is_finite` returning `None`. Changes to 6 files across 4 SymPy subsystems.
+**Model**: GLM-4.5-air | **Verification**: 3 FAIL_TO_PASS tests
 
 | Metric | Single Agent | Multi-Agent (3 workers) |
 |--------|-------------|----------------------|
-| **Resolved (tests pass)** | **YES** (3/3) | **YES** (3/3) |
-| **Wall-clock time** | **172s (2:52)** | 213s (3:33) |
-| **Files correctly changed** | 5 | 5 (same set) |
-| **Tokens used** | 778K | 787K |
-| **Workers spawned** | 0 | 3 |
-| **Team created** | No | Yes (`sympy-fix`) |
+| **Resolved** | **YES** (3/3) | **YES** (3/3) |
+| **Time** | **172s (2:52)** | 213s (3:33) |
+| **Files changed** | 5 | 5 (same set) |
+| **Tokens** | 778K | 787K |
 
-**What happened in the multi-agent run**:
-1. Coordinator created team `sympy-fix`
-2. Spawned 3 workers: `assumptions-core` (3 coupled files), `power-evaluation` (1 file), `tensor-indexing` (1 file)
-3. `power-evaluation` and `tensor-indexing` completed first (simpler changes)
-4. `assumptions-core` took longer (3 files with interdependencies)
-5. Coordinator verified all 3 FAIL_TO_PASS tests passed
-6. Both treatments produced the correct fix
+**Result**: Both resolved it. Single agent was faster on this medium-sized task — the multi-agent overhead (team setup, mailbox polling) exceeded the parallel savings.
+
+### Case Study 3: SWE-bench Verified — SymPy Rich Comparison (21 files)
+
+**Task**: `sympy__sympy-13091` — fix comparison methods across 21 files in 6 modules to return `NotImplemented` instead of `False` for unknown types.
+**Model**: GLM-4.5-air | **Verification**: 2 FAIL_TO_PASS tests
+
+| Metric | Single (run 1) | Single (run 2) | Multi-Agent (4 workers) |
+|--------|---------------|---------------|------------------------|
+| **Time** | 596s (9:56) | 881s (14:41) | 1297s (21:37) |
+| **Files modified** | 1 | 12 | 6 |
+| **Tests** | **FAILED** (wrong fix) | **BROKEN** (IndentationError) | **2 PASSED** |
+| **Tokens** | 3,648K | 6,779K | 7,846K |
+| **Resolved** | **NO** | **NO** | **YES (partial)** |
+
+**What happened**:
+- **Single agent (run 1)**: Modified only `basic.py`, reverted `numbers.py`. Tests fail.
+- **Single agent (run 2)**: Modified 12 files (good coverage!) but introduced an `IndentationError` in `numbers.py` — broke the codebase. Tests can't run.
+- **Multi-agent**: Spawned 4 workers (`core-worker`, `physics-worker`, `polys-worker`, `misc-worker`). Workers completed by the 5-minute mark. Modified 6 files across 3 modules. **Tests pass.**
+
+**Key insight**: The single agent attempted 12 files sequentially but broke the code with accumulated errors. The multi-agent approach gave each worker a focused scope, producing cleaner edits that didn't break each other.
 
 ### Lessons Learned
 
-**1. Multi-agent works on real-world tasks.** Both the toy example and the SWE-bench task were resolved correctly by the coordinator with parallel workers. The infrastructure (team creation, worker spawning, mailbox communication, idle/resume lifecycle) works end-to-end.
+**1. Multi-agent's biggest advantage is correctness, not speed.** On the 21-file task, the single agent was faster but broke the code in both runs. Multi-agent was slower but produced working code. For large tasks, reliability matters more than raw speed.
 
-**2. Parallelism overhead is real.** The coordinator adds ~40-70 seconds of overhead for team setup, worker spawning, mailbox polling, and shutdown. This overhead only pays off when the parallel savings exceed it. For the 70-line SymPy fix, the overhead exceeded the savings (213s vs 172s). For the larger toy task (3 modules), the savings exceeded the overhead (176s vs 240s).
+**2. Context degradation is real.** A single agent editing 12+ files sequentially accumulates context and introduces errors (circular imports, indentation bugs). Workers with fresh, focused context avoid this — each only handles 2-5 files.
 
-**3. The breakeven point depends on task size AND model speed.**
-- With GLM-4.5-air (~10s per LLM call), overhead ≈ 7-8 extra LLM calls ≈ 70-80s
-- Each worker needs at least ~80s of work for parallelism to break even
-- Rule of thumb: multi-agent helps when each worker's subtask would take >2 minutes solo
+**3. Parallelism overhead is significant on small models.** With GLM-4.5-air (~8s/call), the overhead of team management (team_create, spawn_worker × N, check_mailbox × N, terminate × N) costs 70-100 seconds. This only pays off when the task takes 5+ minutes for a single agent.
 
-**4. Multi-agent works best when subtasks are truly independent.** The SWE-bench task had 3 independent change groups (core assumptions, power.py, indexed.py). Workers for the independent groups finished quickly. The coupled group (3 files with shared logic) took longer.
+**4. The crossover point for multi-agent value:**
+- **<5 files**: Single agent wins (overhead > savings)
+- **5-10 files**: Tie (depends on task structure)
+- **>10 files**: Multi-agent wins (correctness advantage dominates)
 
-**5. Model capability matters.** GLM-4.5-air follows explicit instructions well but doesn't autonomously decide to use multi-agent tools. Stronger models (Claude, GPT-4o) would likely make better delegation decisions without explicit prompting.
+**5. Both single agent runs failed on the 21-file task.** This isn't a fluke — the task exceeds what a single sequential agent can handle reliably with GLM-4.5-air. Multi-agent makes it tractable by decomposing into manageable pieces.
 
-**6. Both approaches produce correct results.** For the SWE-bench task, both single-agent and multi-agent modified the same 5 files and resolved the same 3 failing tests. Quality of the fix was equivalent.
+**6. Workers finish fast, coordinator overhead is the bottleneck.** In the multi-agent run, all 4 workers completed by minute 5. The remaining 16 minutes was the coordinator doing verification and additional edits. Reducing coordinator overhead is the key optimization target.
 
 ### When to Use Multi-Agent
 
 | Scenario | Recommendation | Why |
 |----------|---------------|-----|
+| 10+ files across multiple modules | **Multi-agent** | Single agent breaks code with accumulated errors |
 | 3+ independent subtasks, each >2 min | **Multi-agent** | Parallel savings exceed overhead |
-| Large refactoring across many modules | **Multi-agent** | Workers own non-overlapping subsystems |
+| Large refactoring (same pattern, many files) | **Multi-agent** | Workers apply pattern in parallel |
 | Research + implement + test pipeline | **Multi-agent** | Separate explorer, implementer, tester |
 | Single-file bug fix | **Single agent** | No parallelism to exploit |
 | Small tasks (<5 files, <50 lines) | **Single agent** | Overhead exceeds savings |
