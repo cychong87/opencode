@@ -13,7 +13,7 @@ const parameters = z.object({
   mark_read: z
     .boolean()
     .optional()
-    .describe("Mark messages as read after viewing. Default: true"),
+    .describe("Mark messages as read after viewing. Default: false. Set to true only after you have processed the messages."),
 })
 
 function formatMessages(messages: Message[]): string {
@@ -43,7 +43,7 @@ export const CheckMailboxTool = Tool.define(
           const dir = yield* InstanceState.directory
           const mailbox = createMailbox(dir)
           const agentID = params.agent_id
-          const markRead = params.mark_read !== false
+          const markRead = params.mark_read === true
 
           const messages = yield* Effect.promise(() => mailbox.readUnread(agentID))
           const output = formatMessages(messages)
