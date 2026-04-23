@@ -51,6 +51,7 @@ import { SessionRunState } from "./run-state"
 import { EffectBridge } from "@/effect"
 import { autoRoute, extractPromptText } from "@/agent/router/wire"
 import { composeCoordinatorPrompt } from "@/agent/router/compose-prompt"
+import { buildClassifier } from "@/agent/router/build-classifier"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -932,16 +933,20 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         | { suggestedWorkerCount?: number; suggestedPartition?: string[][]; triggerReasons: string[] }
         | undefined
       if (isAutoRoute) {
+        const ctx = yield* InstanceState.context
         const msgsExit = yield* sessions.messages({ sessionID: input.sessionID }).pipe(Effect.exit)
         const existingMsgs = Exit.isSuccess(msgsExit) ? msgsExit.value : []
         const turnIndex = existingMsgs.filter((m: any) => m.info?.role === "user").length + 1
         const promptText = extractPromptText(input.parts as any)
         if (promptText.length > 0) {
+          const classifier = yield* buildClassifier(provider)
           const routeResult = yield* autoRoute({
             prompt: promptText,
             sessionID: input.sessionID,
+            workspaceRoot: ctx.directory,
             turnIndex,
             userOverride: undefined,
+            classifier,
           })
           if (routeResult && routeResult.agentName !== "default") {
             routedAgentName = routeResult.agentName
