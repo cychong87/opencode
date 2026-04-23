@@ -8,7 +8,7 @@ import {
   formatOverride, formatInherited, formatRouted,
   emitAnnounce, emitBanner, type AnnounceOptions,
 } from "./announce"
-import { composeCoordinatorPrompt } from "./compose-prompt"
+import { renderHintBlock } from "./compose-prompt"
 
 export interface SelectAgentInput {
   prompt: string
@@ -138,8 +138,7 @@ export async function selectAgentMode(input: SelectAgentInput): Promise<SelectAg
 }
 
 function renderHintsForPrompt(hints: HintBlock): string {
-  // This string gets inserted into the coordinator system prompt via {{ROUTER_HINTS}}
-  return composeCoordinatorPrompt("{{ROUTER_HINTS}}", hints)
+  return renderHintBlock(hints)
 }
 
 // Export for testing

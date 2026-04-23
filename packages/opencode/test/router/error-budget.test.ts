@@ -58,4 +58,26 @@ describe("ErrorBudgetTracker", () => {
     for (let i = 0; i < 3; i++) tracker.recordTurn("timeout")
     expect(tracker.shouldShowBanner()).toBe(false)
   })
+
+  test("banner does NOT re-fire when window slides but failures still above threshold", () => {
+    const tracker = new ErrorBudgetTracker(2, 5)
+    tracker.recordTurn("timeout")
+    tracker.recordTurn("timeout")
+    expect(tracker.shouldShowBanner()).toBe(true)
+    tracker.bannerShown()
+    // Add one success — window slides, but 2 failures remain
+    tracker.recordTurn(null)
+    expect(tracker.shouldShowBanner()).toBe(false) // still suppressed
+  })
+
+  test("reset clears all state", () => {
+    const tracker = new ErrorBudgetTracker(2, 5)
+    tracker.recordTurn("timeout")
+    tracker.recordTurn("timeout")
+    tracker.bannerShown()
+    tracker.reset()
+    tracker.recordTurn("timeout")
+    tracker.recordTurn("timeout")
+    expect(tracker.shouldShowBanner()).toBe(true)  // fresh after reset
+  })
 })

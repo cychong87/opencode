@@ -10,4 +10,8 @@ export class RouterSessionStore {
   set(sessionId: string, decision: RoutingDecision): void {
     this.decisions.set(sessionId, decision)
   }
+
+  reset(): void {
+    this.decisions.clear()
+  }
 }

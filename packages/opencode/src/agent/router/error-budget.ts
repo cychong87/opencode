@@ -13,8 +13,19 @@ export class ErrorBudgetTracker {
     this.turns.push({ fallbackPath })
     if (this.turns.length > this.windowSize) {
       this.turns.shift()
-      this.bannerShownInWindow = false  // reset when window slides
+      // Only reset banner suppression if fallback count dropped below threshold
+      if (this.bannerShownInWindow) {
+        const fallbackCount = this.turns.filter(t => t.fallbackPath !== null).length
+        if (fallbackCount < this.threshold) {
+          this.bannerShownInWindow = false
+        }
+      }
     }
+  }
+
+  reset(): void {
+    this.turns = []
+    this.bannerShownInWindow = false
   }
 
   shouldShowBanner(): boolean {
