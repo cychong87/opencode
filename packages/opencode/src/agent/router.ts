@@ -8,10 +8,11 @@ import type {
 } from "./router/types"
 import {
   extractP1GlobMentions,
-  extractP2PackageMentions,
   extractP3ScopeKeywords,
   extractP4ConjunctionChains,
   extractP5ExplicitPaths,
+  matchPackagesInPrompt,
+  packageMatches,
   classifyArchetype,
   computeCodebaseSignals,
   computeComposite,
@@ -59,19 +60,19 @@ async function _route(input: RouteInput): Promise<RoutingDecision> {
 
   // 4. Extract prompt signals (P1–P6)
   const p1 = extractP1GlobMentions(input.prompt)
-  const p2 = extractP2PackageMentions(input.prompt, analysis.packages)
+  // Single-pass package matching — used for P2 count, C3/C4 signals, and P5 pruning
+  const matchedPackages = matchPackagesInPrompt(input.prompt, analysis.packages)
+  const p2 = Math.min(matchedPackages.length, 4)
   const p3 = extractP3ScopeKeywords(input.prompt, config.scopeKeywords, config.mutationVerbs)
   const p4 = extractP4ConjunctionChains(input.prompt, config.mutationVerbs)
-  // P5 runs on prompt with P2-matched package names stripped to prevent double-counting
-  // (e.g. "@app/auth/login.ts" would fire P2 AND P5 otherwise)
-  const matchedPackages = analysis.packages.filter(pkg =>
-    extractP2PackageMentions(input.prompt, [pkg]) > 0
-  )
-  let prunedPrompt = input.prompt
-  for (const pkg of matchedPackages) {
-    prunedPrompt = prunedPrompt.split(pkg).join(" ")
-  }
-  const p5 = extractP5ExplicitPaths(prunedPrompt, analysis.topLevelDirs)
+  // P5 pruning: exclude whole tokens that contain any P2-matched package name.
+  // Uses the SAME matcher as P2 (per-token packageMatches call) to avoid
+  // naive-substring over-stripping (e.g. "rapidapi.com" when "api" is matched).
+  const p5Prompt = input.prompt
+    .split(/\s+/)
+    .filter(tok => !matchedPackages.some(pkg => packageMatches(tok, pkg)))
+    .join(" ")
+  const p5 = extractP5ExplicitPaths(p5Prompt, analysis.topLevelDirs)
   const archetype = classifyArchetype(input.prompt, config.mutationVerbs)
   const pw = config.promptSignalWeights
   const p6Modifier = archetype === "read-only" ? (pw["P6_read_only_modifier"] ?? -1.0) : 0

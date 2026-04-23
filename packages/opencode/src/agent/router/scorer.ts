@@ -27,38 +27,49 @@ function isGlobPattern(token: string): boolean {
   return false
 }
 
-export function extractP2PackageMentions(prompt: string, packageNames: string[]): number {
-  let count = 0
+/**
+ * Returns the list of packages matched in the prompt, applying noise-reduction rules:
+ * - Scoped (@org/pkg): substring match with word-boundary lookahead
+ * - Common English words: only match when backticked or quoted
+ * - Other names: word-boundary match
+ *
+ * Callers use `.length` for P2 count (capped at 4) and the matched list for C3/C4 + P5 pruning.
+ * This single-pass helper eliminates the O(N×M) rebuild pattern.
+ */
+export function matchPackagesInPrompt(prompt: string, packageNames: string[]): string[] {
+  const matched: string[] = []
   const seen = new Set<string>()
-
   for (const pkg of packageNames) {
     if (seen.has(pkg)) continue
-
-    const isScoped = pkg.startsWith("@")
-    const isCommonWord = COMMON_ENGLISH_WORDS.has(pkg.toLowerCase())
-
-    let matched = false
-
-    if (isScoped) {
-      // Word boundary: scoped name must NOT be followed by more word chars.
-      // Prevents @app/auth from matching @app/authentication.
-      const escaped = escapeRegex(pkg)
-      matched = new RegExp(`${escaped}(?![a-zA-Z0-9_-])`).test(prompt)
-    } else if (isCommonWord) {
-      const backticked = new RegExp("`" + escapeRegex(pkg) + "`")
-      const quoted = new RegExp(`["']${escapeRegex(pkg)}["']`)
-      matched = backticked.test(prompt) || quoted.test(prompt)
-    } else {
-      const boundary = new RegExp(`\\b${escapeRegex(pkg)}\\b`)
-      matched = boundary.test(prompt)
-    }
-
-    if (matched) {
+    if (packageMatches(prompt, pkg)) {
       seen.add(pkg)
-      count++
+      matched.push(pkg)
     }
   }
-  return Math.min(count, 4)
+  return matched
+}
+
+export function packageMatches(text: string, pkg: string): boolean {
+  const isScoped = pkg.startsWith("@")
+  const isCommonWord = COMMON_ENGLISH_WORDS.has(pkg.toLowerCase())
+  const escaped = escapeRegex(pkg)
+
+  if (isScoped) {
+    // Symmetric boundary: scoped name must NOT be preceded or followed by word chars.
+    // - Prevents @app/auth from matching @app/authentication (trailing)
+    // - Prevents @app/auth from matching my@app/auth (leading — e.g. email-like)
+    return new RegExp(`(?<![a-zA-Z0-9_-])${escaped}(?![a-zA-Z0-9_-])`).test(text)
+  }
+  if (isCommonWord) {
+    const backticked = new RegExp("`" + escaped + "`")
+    const quoted = new RegExp(`["']${escaped}["']`)
+    return backticked.test(text) || quoted.test(text)
+  }
+  return new RegExp(`\\b${escaped}\\b`).test(text)
+}
+
+export function extractP2PackageMentions(prompt: string, packageNames: string[]): number {
+  return Math.min(matchPackagesInPrompt(prompt, packageNames).length, 4)
 }
 
 function escapeRegex(s: string): string {

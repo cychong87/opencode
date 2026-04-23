@@ -66,6 +66,16 @@ describe("P2_package_mentions", () => {
     expect(extractP2PackageMentions("fix @app/auth today", ["@app/auth"])).toBe(1)
     expect(extractP2PackageMentions("fix @app/auth, please", ["@app/auth"])).toBe(1)
   })
+
+  test("scoped match has LEADING word boundary too (symmetric)", () => {
+    // "my@app/auth" should NOT match @app/auth (leading word char)
+    expect(extractP2PackageMentions("use my@app/auth tokens", ["@app/auth"])).toBe(0)
+  })
+
+  test("scoped match works at string boundaries", () => {
+    expect(extractP2PackageMentions("@app/auth", ["@app/auth"])).toBe(1)
+    expect(extractP2PackageMentions("starts with @app/auth", ["@app/auth"])).toBe(1)
+  })
 })
 
 const MUTATION_VERBS = [
