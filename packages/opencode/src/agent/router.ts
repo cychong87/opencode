@@ -64,11 +64,11 @@ async function _route(input: RouteInput): Promise<RoutingDecision> {
   const p4 = extractP4ConjunctionChains(input.prompt, config.mutationVerbs)
   const p5 = extractP5ExplicitPaths(input.prompt, analysis.topLevelDirs)
   const archetype = classifyArchetype(input.prompt, config.mutationVerbs)
-  const p6Modifier = archetype === "read-only" ? -1.0 : 0
+  const pw = config.promptSignalWeights
+  const p6Modifier = archetype === "read-only" ? (pw["P6_read_only_modifier"] ?? -1.0) : 0
 
   // Normalize each signal to [0,1], multiply by weight, sum, scale to [0,10]
   // Caps: P1=3, P2=4, P3=3, P4=3, P5=4
-  const pw = config.promptSignalWeights
   const promptWeightedSum =
     (p1 / 3) * (pw["P1_glob_mentions"] ?? 1) +
     (p2 / 4) * (pw["P2_package_mentions"] ?? 1) +

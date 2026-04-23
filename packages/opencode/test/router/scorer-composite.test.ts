@@ -111,9 +111,9 @@ describe("applyFloorRules", () => {
     expect(result).toBeNull()
   })
 
-  test("trivial archetype does NOT force single on its own", () => {
+  test("trivial archetype forces single", () => {
     const result = applyFloorRules("trivial", { C3: 2 }, 7)
-    expect(result).toBeNull()
+    expect(result).toBe("single")
   })
 
   test("boundary: C3 exactly 1 passes through (threshold is < 1)", () => {
