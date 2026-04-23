@@ -1,4 +1,4 @@
-import type { TaskArchetype } from "./types"
+import type { TaskArchetype, WorkspaceAnalysis } from "./types"
 
 const COMMON_ENGLISH_WORDS = new Set([
   "core", "utils", "api", "app", "shared", "common", "base",
@@ -127,4 +127,39 @@ export function classifyArchetype(prompt: string, mutationVerbs: string[]): Task
   // Broad vs narrow
   const hasBroadIndicator = BROAD_INDICATORS.some(kw => lower.includes(kw))
   return hasBroadIndicator ? "mutating-broad" : "mutating-narrow"
+}
+
+export interface CodebaseSignals {
+  C1: number
+  C2: number
+  C3: number
+  C4: number
+  C5: number
+}
+
+function band(value: number, thresholds: [number, number, number]): number {
+  if (value >= thresholds[2]) return 3
+  if (value >= thresholds[1]) return 2
+  if (value >= thresholds[0]) return 1
+  return 0
+}
+
+export function computeCodebaseSignals(
+  analysis: WorkspaceAnalysis,
+  mentionedPackages: string[],
+): CodebaseSignals {
+  const C1 = band(analysis.totalFiles, [50, 200, 1000])
+  const C2 = band(analysis.packageCount, [2, 4, 8])
+
+  const affectedSubset = mentionedPackages.length > 0
+    ? Math.floor(analysis.totalFiles * (mentionedPackages.length / Math.max(1, analysis.packageCount)))
+    : 0
+  const C3 = band(affectedSubset, [5, 16, 40])
+
+  const uniqueMentioned = new Set(mentionedPackages)
+  const C4 = uniqueMentioned.size >= 2 ? 2 : 0
+
+  const C5 = analysis.languageCount > 1 ? 1 : 0
+
+  return { C1, C2, C3, C4, C5 }
 }
