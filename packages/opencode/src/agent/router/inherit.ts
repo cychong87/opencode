@@ -44,6 +44,9 @@ export function shouldInherit(input: InheritInput): InheritResult {
     return { inherit: false, escape: "stale" }
   }
 
+  // Compute archetype once (reused by escape 4 and 5)
+  const archetype = classifyArchetype(input.prompt, DEFAULT_MUTATION_VERBS)
+
   // Priority 4: short follow-up (trivial/conversational only — read-only queries and mutating
   // prompts are substantive even when short)
   // Path reference requires extension OR known project-dir prefix — avoids false positives
@@ -54,13 +57,12 @@ export function shouldInherit(input: InheritInput): InheritResult {
   if (
     input.prompt.length < SHORT_FOLLOW_UP_CHARS &&
     !hasPathRef &&
-    classifyArchetype(input.prompt, DEFAULT_MUTATION_VERBS) === "trivial"
+    archetype === "trivial"
   ) {
     return { inherit: false, escape: "short_follow" }
   }
 
   // Priority 5: significant archetype change warranting re-route
-  const archetype = classifyArchetype(input.prompt, DEFAULT_MUTATION_VERBS)
   // 5a: coordinator → read-only (de-escalation)
   if (prior.mode === "coordinator" && archetype === "read-only") {
     return { inherit: false, escape: "archetype" }
