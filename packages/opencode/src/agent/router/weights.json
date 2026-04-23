@@ -1,0 +1,43 @@
+{
+  "weightsVersion": "v0.1.0",
+  "promptSignalWeights": {
+    "P1_glob_mentions": 1,
+    "P2_package_mentions": 1,
+    "P3_scope_keywords": 1,
+    "P4_conjunction_chains": 1,
+    "P5_explicit_path_count": 0.5,
+    "P6_read_only_modifier": -1.0
+  },
+  "codebaseSignalWeights": {
+    "C1_total_files": 1,
+    "C2_package_count": 1,
+    "C3_affected_subset_size": 1,
+    "C4_cross_package_breadth": 2,
+    "C5_multilanguage": 1
+  },
+  "bands": {
+    "strongSingleMax": 3,
+    "leanSingleMax": 4.5,
+    "uncertainMax": 6,
+    "leanCoordinatorMax": 7.5
+  },
+  "mutationVerbs": [
+    "refactor", "migrate", "rename", "update", "add", "remove",
+    "delete", "replace", "convert", "extract", "move"
+  ],
+  "scopeKeywords": [
+    "all", "every", "across", "entire", "whole",
+    "throughout", "codebase-wide", "repo-wide"
+  ],
+  "tiebreaker": {
+    "enabled": true,
+    "modelRef": null,
+    "timeoutMs": 3000,
+    "maxTokens": 150,
+    "maxCallsPerSession": 20,
+    "circuitBreaker": {
+      "consecutiveFailuresToTrip": 5,
+      "cooldownMs": 60000
+    }
+  }
+}
