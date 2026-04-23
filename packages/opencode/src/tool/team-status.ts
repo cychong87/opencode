@@ -81,8 +81,16 @@ export const TeamStatusTool = Tool.define(
             const { lines } = formatStatus(params.team_name, workers)
             const timedOut = activeCount > 0
             if (timedOut) {
+              const activeNames = workers
+                .filter((m) => m.status === "active")
+                .map((m) => m.name)
+                .join(", ")
               lines.push("")
-              lines.push(`TIMED OUT after ${timeoutSecs}s — ${activeCount} worker(s) still active.`)
+              lines.push(`TIMED OUT after ${timeoutSecs}s — ${activeCount} worker(s) still active: ${activeNames}`)
+              lines.push("")
+              lines.push("You have two options:")
+              lines.push("  1. Call team_status(wait_for_completion=true) again to keep waiting")
+              lines.push("  2. Read the active worker's assigned files and fix them yourself — this is often faster")
             }
 
             return {
