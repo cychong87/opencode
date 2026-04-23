@@ -57,27 +57,27 @@ async function _route(input: RouteInput): Promise<RoutingDecision> {
     fingerprint = ""
   }
 
-  // 4. Extract prompt signals (P1–P5)
+  // 4. Extract prompt signals (P1–P6)
   const p1 = extractP1GlobMentions(input.prompt)
   const p2 = extractP2PackageMentions(input.prompt, analysis.packages)
   const p3 = extractP3ScopeKeywords(input.prompt, config.scopeKeywords, config.mutationVerbs)
   const p4 = extractP4ConjunctionChains(input.prompt, config.mutationVerbs)
   const p5 = extractP5ExplicitPaths(input.prompt, analysis.topLevelDirs)
-
-  // P6: read-only archetype modifier (-1.0 when archetype is read-only)
   const archetype = classifyArchetype(input.prompt, config.mutationVerbs)
-  const p6Raw = archetype === "read-only" ? 1 : 0
+  const p6Modifier = archetype === "read-only" ? -1.0 : 0
 
+  // Normalize each signal to [0,1], multiply by weight, sum, scale to [0,10]
+  // Caps: P1=3, P2=4, P3=3, P4=3, P5=4
   const pw = config.promptSignalWeights
-  const promptRawScore =
-    p1 * (pw["P1_glob_mentions"] ?? 1) +
-    p2 * (pw["P2_package_mentions"] ?? 1) +
-    p3 * (pw["P3_scope_keywords"] ?? 1) +
-    p4 * (pw["P4_conjunction_chains"] ?? 1) +
-    p5 * (pw["P5_explicit_path_count"] ?? 0.5) +
-    p6Raw * (pw["P6_read_only_modifier"] ?? -1.0)
-
-  const promptScore = Math.max(0, promptRawScore)
+  const promptWeightedSum =
+    (p1 / 3) * (pw["P1_glob_mentions"] ?? 1) +
+    (p2 / 4) * (pw["P2_package_mentions"] ?? 1) +
+    (p3 / 3) * (pw["P3_scope_keywords"] ?? 1) +
+    (p4 / 3) * (pw["P4_conjunction_chains"] ?? 1) +
+    (p5 / 4) * (pw["P5_explicit_path_count"] ?? 0.5)
+  // Max possible weighted sum (all signals at cap): 1+1+1+1+0.5 = 4.5
+  const maxPromptSum = 1 + 1 + 1 + 1 + 0.5
+  const promptScore = Math.max(0, (promptWeightedSum / maxPromptSum) * 10 + p6Modifier)
 
   // Build fired signals list
   const firedSignals: string[] = []
@@ -86,25 +86,27 @@ async function _route(input: RouteInput): Promise<RoutingDecision> {
   if (p3 > 0) firedSignals.push("P3_scope_keywords")
   if (p4 > 0) firedSignals.push("P4_conjunction_chains")
   if (p5 > 0) firedSignals.push("P5_explicit_path_count")
-  if (p6Raw > 0) firedSignals.push("P6_read_only_modifier")
+  if (archetype === "read-only") firedSignals.push("P6_read_only_modifier")
 
   // 5. Compute codebase signals (C1–C5)
-  // mentionedPackages = packages that fired in P2
-  const mentionedPackages = analysis.packages.filter(pkg => {
-    if (pkg.startsWith("@")) return input.prompt.includes(pkg)
-    const re = new RegExp(`\\b${escapeRegex(pkg)}\\b`)
-    return re.test(input.prompt)
-  })
+  // Reuse P2's matched packages (respects noise-reduction rules)
+  const mentionedPackages = analysis.packages.filter(pkg =>
+    extractP2PackageMentions(input.prompt, [pkg]) > 0
+  )
 
   const codebaseSignals = computeCodebaseSignals(analysis, mentionedPackages)
 
+  // Normalize each codebase signal to [0,1], multiply by weight, sum, scale to [0,10]
   const cw = config.codebaseSignalWeights
-  const codebaseScore =
-    codebaseSignals.C1 * (cw["C1_total_files"] ?? 1) +
-    codebaseSignals.C2 * (cw["C2_package_count"] ?? 1) +
-    codebaseSignals.C3 * (cw["C3_affected_subset_size"] ?? 1) +
-    codebaseSignals.C4 * (cw["C4_cross_package_breadth"] ?? 2) +
-    codebaseSignals.C5 * (cw["C5_multilanguage"] ?? 1)
+  const codebaseWeightedSum =
+    (codebaseSignals.C1 / 3) * (cw["C1_total_files"] ?? 1) +
+    (codebaseSignals.C2 / 3) * (cw["C2_package_count"] ?? 1) +
+    (codebaseSignals.C3 / 3) * (cw["C3_affected_subset_size"] ?? 1) +
+    (codebaseSignals.C4 / 2) * (cw["C4_cross_package_breadth"] ?? 2) +
+    (codebaseSignals.C5 / 1) * (cw["C5_multilanguage"] ?? 1)
+  // Max possible: 1+1+1+2+1 = 6
+  const maxCodebaseSum = 1 + 1 + 1 + 2 + 1
+  const codebaseScore = (codebaseWeightedSum / maxCodebaseSum) * 10
 
   if (codebaseSignals.C1 > 0) firedSignals.push("C1_total_files")
   if (codebaseSignals.C2 > 0) firedSignals.push("C2_package_count")
@@ -112,17 +114,13 @@ async function _route(input: RouteInput): Promise<RoutingDecision> {
   if (codebaseSignals.C4 > 0) firedSignals.push("C4_cross_package_breadth")
   if (codebaseSignals.C5 > 0) firedSignals.push("C5_multilanguage")
 
-  // 6. Compute composite scores
-  // primary = min(promptScore, codebaseScore) — used for floor rule check
-  // secondary = 0.6*prompt + 0.4*codebase — used for band decision
+  // 6. Composite: primary = min (AND-gate), secondary = weighted blend (tiebreaker context)
   const composite = computeComposite(promptScore, codebaseScore)
 
-  // 8. Apply decision bands using secondary score
-  const bandResult = applyDecisionBand(composite.secondary, config.bands)
+  // 7. Apply decision bands to PRIMARY score (spec §4: AND-gate)
+  const bandResult = applyDecisionBand(composite.primary, config.bands)
 
-  // 7. Apply floor rules (uses promptScore and C3 as min-gates)
-  // Floor rule can override band result to force single, but if band already
-  // gives single, preserve band's confidence (e.g. high).
+  // 8. Apply floor rules — can override band to force single
   const floorResult = applyFloorRules(archetype, codebaseSignals, promptScore)
   if (floorResult === "single" && bandResult.mode !== "single") {
     // Floor rule is actually overriding a non-single decision
@@ -214,7 +212,7 @@ async function _route(input: RouteInput): Promise<RoutingDecision> {
     mode: finalMode as "single" | "coordinator",
     confidence: finalConfidence,
     confidenceScore,
-    reason: `band:${bandResult.mode}`,
+    reason: buildReason(finalMode as "single" | "coordinator", firedSignals, analysis, archetype),
     firedSignals,
     signals: {
       promptScore,
@@ -228,6 +226,24 @@ async function _route(input: RouteInput): Promise<RoutingDecision> {
   }
 }
 
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+function buildReason(
+  mode: "single" | "coordinator",
+  firedSignals: string[],
+  analysis: WorkspaceAnalysis,
+  archetype: string,
+): string {
+  if (archetype === "read-only") return "read-only task"
+  if (mode === "single") {
+    if (analysis.packageCount <= 1) return "single-package edit"
+    return "single-agent sufficient"
+  }
+  // Coordinator — describe why
+  const parts: string[] = []
+  if (firedSignals.includes("C4_cross_package_breadth"))
+    parts.push(`${analysis.packageCount} packages`)
+  if (analysis.totalFiles > 0)
+    parts.push(`${analysis.totalFiles} files`)
+  if (parts.length > 0) return parts.join(", ")
+  return "complex parallel task"
 }
+

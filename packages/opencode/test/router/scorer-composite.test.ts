@@ -29,55 +29,56 @@ describe("computeComposite", () => {
 })
 
 describe("applyDecisionBand", () => {
-  test("[0, 3) → single, high", () => {
-    const r = applyDecisionBand(2, bands)
+  // Bands from weights.json: strongSingleMax=0.8, leanSingleMax=1.5, uncertainMax=2.5, leanCoordinatorMax=4.0
+  test("[0, 0.8) → single, high", () => {
+    const r = applyDecisionBand(0.5, bands)
     expect(r.mode).toBe("single")
     expect(r.confidence).toBe("high")
   })
 
-  test("[3, 4.5) → single, medium", () => {
-    const r = applyDecisionBand(3.5, bands)
+  test("[0.8, 1.5) → single, medium", () => {
+    const r = applyDecisionBand(1.0, bands)
     expect(r.mode).toBe("single")
     expect(r.confidence).toBe("medium")
   })
 
-  test("[4.5, 6) → uncertain, medium", () => {
-    const r = applyDecisionBand(5, bands)
+  test("[1.5, 2.5) → uncertain, medium", () => {
+    const r = applyDecisionBand(2.0, bands)
     expect(r.mode).toBe("uncertain")
     expect(r.confidence).toBe("medium")
   })
 
-  test("[6, 7.5) → coordinator, medium", () => {
-    const r = applyDecisionBand(6.5, bands)
+  test("[2.5, 4.0) → coordinator, medium", () => {
+    const r = applyDecisionBand(3.0, bands)
     expect(r.mode).toBe("coordinator")
     expect(r.confidence).toBe("medium")
   })
 
-  test("[7.5, 10] → coordinator, high", () => {
-    const r = applyDecisionBand(8, bands)
+  test("[4.0, 10] → coordinator, high", () => {
+    const r = applyDecisionBand(5.0, bands)
     expect(r.mode).toBe("coordinator")
     expect(r.confidence).toBe("high")
   })
 
-  test("boundary: exactly 3 → single, medium", () => {
-    const r = applyDecisionBand(3, bands)
+  test("boundary: exactly 0.8 → single, medium", () => {
+    const r = applyDecisionBand(0.8, bands)
     expect(r.mode).toBe("single")
     expect(r.confidence).toBe("medium")
   })
 
-  test("boundary: exactly 4.5 → uncertain", () => {
-    const r = applyDecisionBand(4.5, bands)
+  test("boundary: exactly 1.5 → uncertain", () => {
+    const r = applyDecisionBand(1.5, bands)
     expect(r.mode).toBe("uncertain")
   })
 
-  test("boundary: exactly 6 → coordinator, medium", () => {
-    const r = applyDecisionBand(6, bands)
+  test("boundary: exactly 2.5 → coordinator, medium", () => {
+    const r = applyDecisionBand(2.5, bands)
     expect(r.mode).toBe("coordinator")
     expect(r.confidence).toBe("medium")
   })
 
-  test("boundary: exactly 7.5 → coordinator, high", () => {
-    const r = applyDecisionBand(7.5, bands)
+  test("boundary: exactly 4.0 → coordinator, high", () => {
+    const r = applyDecisionBand(4.0, bands)
     expect(r.mode).toBe("coordinator")
     expect(r.confidence).toBe("high")
   })

@@ -16,10 +16,10 @@
     "C5_multilanguage": 1
   },
   "bands": {
-    "strongSingleMax": 3,
-    "leanSingleMax": 4.5,
-    "uncertainMax": 6,
-    "leanCoordinatorMax": 7.5
+    "strongSingleMax": 0.8,
+    "leanSingleMax": 1.5,
+    "uncertainMax": 2.5,
+    "leanCoordinatorMax": 4.0
   },
   "mutationVerbs": [
     "refactor", "migrate", "rename", "update", "add", "remove",
