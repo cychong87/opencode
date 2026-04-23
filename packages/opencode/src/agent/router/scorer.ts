@@ -1,4 +1,4 @@
-import type { TaskArchetype, WorkspaceAnalysis } from "./types"
+import type { TaskArchetype, WorkspaceAnalysis, RouterConfig } from "./types"
 
 const COMMON_ENGLISH_WORDS = new Set([
   "core", "utils", "api", "app", "shared", "common", "base",
@@ -162,4 +162,42 @@ export function computeCodebaseSignals(
   const C5 = analysis.languageCount > 1 ? 1 : 0
 
   return { C1, C2, C3, C4, C5 }
+}
+
+export interface CompositeScore {
+  primary: number
+  secondary: number
+}
+
+export function computeComposite(promptScore: number, codebaseScore: number): CompositeScore {
+  return {
+    primary: Math.min(promptScore, codebaseScore),
+    secondary: 0.6 * promptScore + 0.4 * codebaseScore,
+  }
+}
+
+export interface BandResult {
+  mode: "single" | "coordinator" | "uncertain"
+  confidence: "high" | "medium" | "low"
+}
+
+export function applyDecisionBand(
+  primaryScore: number,
+  bands: RouterConfig["bands"],
+): BandResult {
+  if (primaryScore < bands.strongSingleMax) return { mode: "single", confidence: "high" }
+  if (primaryScore < bands.leanSingleMax) return { mode: "single", confidence: "medium" }
+  if (primaryScore < bands.uncertainMax) return { mode: "uncertain", confidence: "medium" }
+  if (primaryScore < bands.leanCoordinatorMax) return { mode: "coordinator", confidence: "medium" }
+  return { mode: "coordinator", confidence: "high" }
+}
+
+export function applyFloorRules(
+  archetype: TaskArchetype,
+  codebaseSignals: Pick<CodebaseSignals, "C3">,
+  promptScore: number,
+): "single" | null {
+  if (archetype === "read-only") return "single"
+  if (codebaseSignals.C3 < 1 && promptScore < 6) return "single"
+  return null
 }
