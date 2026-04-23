@@ -151,24 +151,39 @@ Added `team_status` tool and rewrote coordinator prompt with explicit completion
 3. Anti-pattern warnings — "Do NOT call check_mailbox more than 5 times without team_status"
 4. The coordinator adapted mid-run: when core-worker was slow, it started editing files directly itself
 
+#### Round 4: GLM-5 (blocking team_status)
+
+Added `wait_for_completion=true` to `team_status` — blocks inside the tool until all workers finish, eliminating the LLM polling loop entirely.
+
+| Metric | Single Agent | Multi (polling) | Multi (blocking) |
+|--------|-------------|----------------|-----------------|
+| **Time** | 2965s (49 min) | 1516s (25 min) | **1414s (24 min)** |
+| **Tests** | **2 PASSED** | **2 PASSED** | **2 PASSED** |
+| **Tokens** | 7,541K | 2,305K | **1,194K** |
+| **team_status** | — | 67 | **1** |
+| **check_mailbox** | — | 30 | **0** |
+| **Resolved** | **YES** | **YES** | **YES** |
+
+**vs Single Agent**: **2.1x faster, 6.3x cheaper in tokens.**
+
+**What blocking wait achieved**: Each polling call triggered a full LLM inference round (~15s, ~24K tokens). The coordinator was spending 93% of wall time on polling. Blocking `team_status` moves the wait from expensive LLM inference loops to a cheap `Effect.sleep` inside the tool — 97 polling calls reduced to 1.
+
 ### Lessons Learned
 
-**1. Multi-agent wins on both speed AND correctness for large tasks.** With GLM-5 and the coordinator fix, multi-agent resolved the 21-file task in 25 min vs 49 min single-agent — 1.95x faster and 3.3x cheaper in tokens. With GLM-4.5-air, multi-agent was the *only* approach that produced working code (single agent failed twice).
+**1. Multi-agent wins on speed, correctness, AND cost for large tasks.** With GLM-5 and blocking `team_status`, multi-agent resolved the 21-file task 2.1x faster and 6.3x cheaper in tokens than single-agent. With GLM-4.5-air, multi-agent was the *only* approach that produced working code (single agent failed twice).
 
-**2. Context degradation is real.** A single agent editing 12+ files sequentially accumulates context and introduces errors (circular imports, indentation bugs). Workers with fresh, focused context avoid this — each only handles 2-5 files.
+**2. Polling is the #1 performance killer.** In Round 3, the coordinator spent 93% of wall time on 97 polling calls — each triggering a full LLM inference round. Moving the wait inside the tool (blocking `team_status`) eliminated this entirely. Lesson: never let an LLM agent poll in a loop; use blocking tools instead.
 
-**3. Completion detection is critical.** The biggest bug was the coordinator getting stuck in an infinite mailbox polling loop. Adding `team_status` (direct status check) and explicit exit conditions in the prompt fixed this. Lesson: LLM-driven loops need hard exit conditions, not just "check regularly."
+**3. Context degradation is real.** A single agent editing 12+ files sequentially accumulates context and introduces errors (circular imports, indentation bugs). Workers with fresh, focused context avoid this — each only handles 2-5 files.
 
-**4. The coordinator adapts when given the right tools.** In the fixed run, when core-worker was slow, the coordinator started editing files directly itself (19 reads, 8 edits). Good system prompts enable adaptive behavior.
+**4. Completion detection must be tool-level, not prompt-level.** Prompt-based instructions ("check regularly", "stop after N calls") are unreliable — LLMs ignore limits. The blocking `wait_for_completion` parameter is deterministic and cannot be ignored.
 
 **5. The crossover point for multi-agent value:**
 - **<5 files**: Single agent wins (overhead > savings)
 - **5-10 files**: Tie (depends on task structure)
-- **>10 files**: Multi-agent wins (speed + correctness)
+- **>10 files**: Multi-agent wins (speed + correctness + cost)
 
 **6. Parallelism overhead is significant on small models.** With GLM-4.5-air (~8s/call), the overhead of team management costs 70-100 seconds. This only pays off when the task takes 5+ minutes for a single agent.
-
-**7. Workers finish fast, coordinator overhead is the bottleneck.** Workers completed by minute 5-8 in most runs. Reducing coordinator overhead (faster completion detection, less polling) is the key optimization target.
 
 ### When to Use Multi-Agent
 
@@ -181,7 +196,7 @@ Added `team_status` tool and rewrote coordinator prompt with explicit completion
 | Single-file bug fix | **Single agent** | No parallelism to exploit |
 | Small tasks (<5 files, <50 lines) | **Single agent** | Overhead exceeds savings |
 | Sequential dependencies between changes | **Single agent** | Workers can't parallelize dependent work |
-| Token budget is tight | **Single agent** | Multi-agent uses 1.5-2x more tokens |
+| Token budget is tight | **Multi-agent** | With blocking wait, multi-agent uses 6x fewer tokens on large tasks |
 
 ## Tools Reference
 
@@ -336,6 +351,7 @@ S5: cc1289673 — Code review bugfixes (6 fixes)
 S6: 008172aa1 — Worker CWD fix
 S7: 562ede096 — check_mailbox mark_read default fix
 S8: e6bd63633 — team_status tool + coordinator polling loop fix
+S9: 01da27b96 — blocking team_status (wait_for_completion) + prompt simplification
 ```
 
 Full diff: https://github.com/cychong87/opencode/compare/main...feature/multi-agent
