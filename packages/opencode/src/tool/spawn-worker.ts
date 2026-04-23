@@ -100,14 +100,14 @@ export const SpawnWorkerTool = Tool.define(
                   currentPrompt = undefined
                   yield* Effect.promise(() => teams.updateStatus(params.team_name, agentID, "idle"))
 
-                  // Send idle notification to coordinator
+                  // Send idle notification to coordinator with useful context
                   yield* Effect.promise(() =>
                     mailbox.send({
                       from: agentID,
                       to: coordinatorID,
                       type: "idle_notification",
-                      content: "Task completed, waiting for next assignment",
-                      summary: `${params.name} completed task`,
+                      content: `Worker "${params.name}" has finished its assigned task and is now idle. Use team_status to check if all workers are done, then proceed to verification.`,
+                      summary: `${params.name} finished — check team_status`,
                     }),
                   )
                 }

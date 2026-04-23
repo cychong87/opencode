@@ -253,6 +253,7 @@ export const layer = Layer.effect(
                 team_task_create: "allow",
                 team_task_list: "allow",
                 team_task_update: "allow",
+                team_status: "allow",
                 task: "allow",
                 question: "allow",
               }),

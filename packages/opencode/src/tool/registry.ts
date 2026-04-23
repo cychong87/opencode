@@ -18,6 +18,7 @@ import { TerminateWorkerTool } from "./terminate-worker"
 import { TeamTaskCreateTool } from "./team-task-create"
 import { TeamTaskListTool } from "./team-task-list"
 import { TeamTaskUpdateTool } from "./team-task-update"
+import { TeamStatusTool } from "./team-status"
 import { TodoWriteTool } from "./todo"
 import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
@@ -135,6 +136,7 @@ export const layer: Layer.Layer<
     const teamTaskCreate = yield* TeamTaskCreateTool
     const teamTaskList = yield* TeamTaskListTool
     const teamTaskUpdate = yield* TeamTaskUpdateTool
+    const teamStatus = yield* TeamStatusTool
     const agent = yield* Agent.Service
 
     const state = yield* InstanceState.make<State>(
@@ -227,6 +229,7 @@ export const layer: Layer.Layer<
           teamTaskCreate: Tool.init(teamTaskCreate),
           teamTaskList: Tool.init(teamTaskList),
           teamTaskUpdate: Tool.init(teamTaskUpdate),
+          teamStatus: Tool.init(teamStatus),
         })
 
         return {
@@ -258,6 +261,7 @@ export const layer: Layer.Layer<
             tool.teamTaskCreate,
             tool.teamTaskList,
             tool.teamTaskUpdate,
+            tool.teamStatus,
             ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [tool.lsp] : []),
             ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [tool.plan] : []),
           ],
