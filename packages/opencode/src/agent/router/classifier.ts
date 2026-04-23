@@ -12,7 +12,9 @@ export interface GuardedConfig {
   cooldownMs: number
 }
 
-export class GuardedClassifier implements LLMClassifier {
+// GuardedClassifier wraps an LLMClassifier with circuit breaker + rate limiting.
+// It does NOT implement LLMClassifier because its classify() returns null on fallback.
+export class GuardedClassifier {
   private readonly inner: LLMClassifier
   private readonly config: GuardedConfig
   private callCount = 0
