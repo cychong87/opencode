@@ -3,7 +3,7 @@
   "promptSignalWeights": {
     "P1_glob_mentions": 1,
     "P2_package_mentions": 1,
-    "P3_scope_keywords": 32,
+    "P3_scope_keywords": 2,
     "P4_conjunction_chains": 1,
     "P5_explicit_path_count": 0.5,
     "P6_read_only_modifier": -1.0
@@ -16,10 +16,10 @@
     "C5_multilanguage": 1
   },
   "bands": {
-    "strongSingleMax": 0.3,
-    "leanSingleMax": 0.5,
-    "uncertainMax": 0.55,
-    "leanCoordinatorMax": 0.6
+    "strongSingleMax": 0.5,
+    "leanSingleMax": 1.0,
+    "uncertainMax": 2.0,
+    "leanCoordinatorMax": 3.0
   },
   "mutationVerbs": [
     "refactor", "migrate", "rename", "update", "add", "remove",

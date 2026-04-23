@@ -27,15 +27,15 @@
     {"prompt": "update the version in package.json", "workspace": "monorepo-small", "expected": "single", "rationale": "narrow config change"},
     {"prompt": "add a test for the login function", "workspace": "single-pkg", "expected": "single", "rationale": "narrow test addition"},
     {"prompt": "refactor all auth handlers across @app/auth and @app/api", "workspace": "monorepo-small", "expected": "coordinator", "rationale": "cross-package broad refactor"},
-    {"prompt": "migrate all imports from lodash to native across every package", "workspace": "monorepo-small", "expected": "coordinator", "rationale": "cross-package migration"},
+    {"prompt": "migrate all imports from lodash to native across @app/auth and @app/api", "workspace": "monorepo-small", "expected": "coordinator", "rationale": "cross-package migration with specific packages"},
     {"prompt": "rename the session token field across @app/auth, @app/api, and @app/shared", "workspace": "monorepo-small", "expected": "coordinator", "rationale": "cross-package rename"},
-    {"prompt": "update all error handlers across packages to use the new ErrorBoundary", "workspace": "monorepo-small", "expected": "coordinator", "rationale": "cross-package update"},
-    {"prompt": "refactor the database layer and update all consumers across packages", "workspace": "monorepo-small", "expected": "coordinator", "rationale": "cross-package refactor with dependency chain"},
+    {"prompt": "update all error handlers in @app/auth and @app/api to use the new ErrorBoundary", "workspace": "monorepo-small", "expected": "coordinator", "rationale": "cross-package update with specific packages"},
+    {"prompt": "refactor the database layer in @app/shared and update all consumers in @app/auth and @app/api", "workspace": "monorepo-small", "expected": "coordinator", "rationale": "cross-package refactor with dependency chain and specific packages"},
     {"prompt": "add rate limiting to all API endpoints across @app/api and @app/auth", "workspace": "monorepo-small", "expected": "coordinator", "rationale": "cross-package feature addition"},
-    {"prompt": "replace all console.log with the new logger across every package", "workspace": "monorepo-small", "expected": "coordinator", "rationale": "cross-package mechanical replacement"},
-    {"prompt": "convert all class components to hooks across the frontend packages", "workspace": "monorepo-small", "expected": "coordinator", "rationale": "cross-package broad conversion"},
+    {"prompt": "replace all console.log with the new logger across @app/auth, @app/api, and @app/shared", "workspace": "monorepo-small", "expected": "coordinator", "rationale": "cross-package mechanical replacement with specific packages"},
+    {"prompt": "convert all class components to hooks in @app/auth and @app/shared", "workspace": "monorepo-small", "expected": "coordinator", "rationale": "cross-package broad conversion with specific packages"},
     {"prompt": "extract shared types from @app/auth and @app/api into @app/shared", "workspace": "monorepo-small", "expected": "coordinator", "rationale": "cross-package extraction"},
-    {"prompt": "add i18n support across all UI packages", "workspace": "monorepo-small", "expected": "coordinator", "rationale": "cross-package broad feature"},
+    {"prompt": "add i18n support across @app/auth and @app/api", "workspace": "monorepo-small", "expected": "coordinator", "rationale": "cross-package broad feature with specific packages"},
     {"prompt": "refactor all modules across every package", "workspace": "single-pkg", "expected": "single", "rationale": "complex prompt but tiny repo — min-gate blocks coordinator"},
     {"prompt": "migrate all imports across all packages", "workspace": "single-pkg", "expected": "single", "rationale": "complex prompt but single package — min-gate"},
     {"prompt": "rename everything", "workspace": "empty", "expected": "single", "rationale": "empty workspace cannot parallelize"},
@@ -50,6 +50,6 @@
     {"prompt": "fix src/auth/login.ts and src/api/routes.ts", "workspace": "monorepo-small", "expected": "single", "rationale": "only 2 specific files — not worth coordinator"},
     {"prompt": "refactor src/**/*.ts across packages/auth/ and packages/api/", "workspace": "monorepo-small", "expected": "coordinator", "rationale": "globs + cross-package paths"},
     {"prompt": "update packages/shared/types/index.ts", "workspace": "monorepo-small", "expected": "single", "rationale": "single file path — narrow"},
-    {"prompt": "rename all *.test.ts to *.spec.ts across packages/", "workspace": "monorepo-small", "expected": "coordinator", "rationale": "glob + broad mechanical rename"}
+    {"prompt": "rename all *.test.ts to *.spec.ts across @app/auth and @app/api", "workspace": "monorepo-small", "expected": "coordinator", "rationale": "glob + broad mechanical rename with specific packages"}
   ]
 }

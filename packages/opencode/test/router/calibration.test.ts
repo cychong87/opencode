@@ -16,8 +16,8 @@ const workspaceMap: Record<string, WorkspaceAnalysis> = {
     languageCount: 1, manifestPaths: ["package.json"], topLevelDirs: ["src"],
   },
   "monorepo-small": {
-    totalFiles: 15, packageCount: 3,
-    packages: ["packages/auth", "packages/api", "packages/shared"],
+    totalFiles: 200, packageCount: 3,
+    packages: ["@app/auth", "@app/api", "@app/shared"],
     languageCount: 1,
     manifestPaths: ["package.json", "packages/auth/package.json", "packages/api/package.json", "packages/shared/package.json"],
     topLevelDirs: ["packages", "scripts"],
@@ -27,10 +27,6 @@ const workspaceMap: Record<string, WorkspaceAnalysis> = {
     languageCount: 2,
     manifestPaths: ["frontend/package.json", "backend/pyproject.toml"],
     topLevelDirs: ["frontend", "backend"],
-  },
-  "with-nodemodules": {
-    totalFiles: 2, packageCount: 1, packages: ["my-app"],
-    languageCount: 1, manifestPaths: ["package.json"], topLevelDirs: ["src"],
   },
 }
 

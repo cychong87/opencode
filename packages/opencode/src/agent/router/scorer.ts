@@ -200,6 +200,6 @@ export function applyFloorRules(
   promptScore: number,
 ): "single" | null {
   if (archetype === "read-only") return "single"
-  if (codebaseSignals.C3 < 1 && promptScore < 6) return "single"
+  if (codebaseSignals.C3 < 1 && promptScore < 2) return "single"
   return null
 }

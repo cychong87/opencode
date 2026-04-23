@@ -29,56 +29,56 @@ describe("computeComposite", () => {
 })
 
 describe("applyDecisionBand", () => {
-  // Bands from weights.json: strongSingleMax=0.3, leanSingleMax=0.5, uncertainMax=0.55, leanCoordinatorMax=0.6
-  test("[0, 0.3) → single, high", () => {
-    const r = applyDecisionBand(0.1, bands)
+  // Bands from weights.json: strongSingleMax=0.5, leanSingleMax=1.0, uncertainMax=2.0, leanCoordinatorMax=3.0
+  test("[0, 0.5) → single, high", () => {
+    const r = applyDecisionBand(0.3, bands)
     expect(r.mode).toBe("single")
     expect(r.confidence).toBe("high")
   })
 
-  test("[0.3, 0.5) → single, medium", () => {
-    const r = applyDecisionBand(0.4, bands)
+  test("[0.5, 1.0) → single, medium", () => {
+    const r = applyDecisionBand(0.7, bands)
     expect(r.mode).toBe("single")
     expect(r.confidence).toBe("medium")
   })
 
-  test("[0.5, 0.55) → uncertain, medium", () => {
-    const r = applyDecisionBand(0.52, bands)
+  test("[1.0, 2.0) → uncertain, medium", () => {
+    const r = applyDecisionBand(1.5, bands)
     expect(r.mode).toBe("uncertain")
     expect(r.confidence).toBe("medium")
   })
 
-  test("[0.55, 0.6) → coordinator, medium", () => {
-    const r = applyDecisionBand(0.57, bands)
+  test("[2.0, 3.0) → coordinator, medium", () => {
+    const r = applyDecisionBand(2.5, bands)
     expect(r.mode).toBe("coordinator")
     expect(r.confidence).toBe("medium")
   })
 
-  test("[0.6, 10] → coordinator, high", () => {
+  test("[3.0, 10] → coordinator, high", () => {
     const r = applyDecisionBand(5.0, bands)
     expect(r.mode).toBe("coordinator")
     expect(r.confidence).toBe("high")
   })
 
-  test("boundary: exactly 0.3 → single, medium", () => {
-    const r = applyDecisionBand(0.3, bands)
+  test("boundary: exactly 0.5 → single, medium", () => {
+    const r = applyDecisionBand(0.5, bands)
     expect(r.mode).toBe("single")
     expect(r.confidence).toBe("medium")
   })
 
-  test("boundary: exactly 0.5 → uncertain", () => {
-    const r = applyDecisionBand(0.5, bands)
+  test("boundary: exactly 1.0 → uncertain", () => {
+    const r = applyDecisionBand(1.0, bands)
     expect(r.mode).toBe("uncertain")
   })
 
-  test("boundary: exactly 0.55 → coordinator, medium", () => {
-    const r = applyDecisionBand(0.55, bands)
+  test("boundary: exactly 2.0 → coordinator, medium", () => {
+    const r = applyDecisionBand(2.0, bands)
     expect(r.mode).toBe("coordinator")
     expect(r.confidence).toBe("medium")
   })
 
-  test("boundary: exactly 0.6 → coordinator, high", () => {
-    const r = applyDecisionBand(0.6, bands)
+  test("boundary: exactly 3.0 → coordinator, high", () => {
+    const r = applyDecisionBand(3.0, bands)
     expect(r.mode).toBe("coordinator")
     expect(r.confidence).toBe("high")
   })
@@ -97,17 +97,17 @@ describe("applyFloorRules", () => {
   })
 
   test("small C3 + low prompt score forces single", () => {
-    const result = applyFloorRules("mutating-broad", { C3: 0 }, 4)
+    const result = applyFloorRules("mutating-broad", { C3: 0 }, 1)
     expect(result).toBe("single")
   })
 
   test("large C3 + high prompt score passes through", () => {
-    const result = applyFloorRules("mutating-broad", { C3: 2 }, 7)
+    const result = applyFloorRules("mutating-broad", { C3: 2 }, 3)
     expect(result).toBeNull()
   })
 
-  test("small C3 but high prompt score passes through", () => {
-    const result = applyFloorRules("mutating-broad", { C3: 0 }, 7)
+  test("small C3 but prompt score >= 2 passes through", () => {
+    const result = applyFloorRules("mutating-broad", { C3: 0 }, 3)
     expect(result).toBeNull()
   })
 
@@ -117,12 +117,12 @@ describe("applyFloorRules", () => {
   })
 
   test("boundary: C3 exactly 1 passes through (threshold is < 1)", () => {
-    const result = applyFloorRules("mutating-broad", { C3: 1 }, 4)
+    const result = applyFloorRules("mutating-broad", { C3: 1 }, 1)
     expect(result).toBeNull()
   })
 
-  test("boundary: promptScore exactly 6 passes through (threshold is < 6)", () => {
-    const result = applyFloorRules("mutating-broad", { C3: 0 }, 6)
+  test("boundary: promptScore exactly 2 passes through (threshold is < 2)", () => {
+    const result = applyFloorRules("mutating-broad", { C3: 0 }, 2)
     expect(result).toBeNull()
   })
 })
