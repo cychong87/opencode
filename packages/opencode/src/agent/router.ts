@@ -75,8 +75,13 @@ async function _route(input: RouteInput): Promise<RoutingDecision> {
     (p3 / 3) * (pw["P3_scope_keywords"] ?? 1) +
     (p4 / 3) * (pw["P4_conjunction_chains"] ?? 1) +
     (p5 / 4) * (pw["P5_explicit_path_count"] ?? 0.5)
-  // Max possible weighted sum (all signals at cap): 1+1+1+1+0.5 = 4.5
-  const maxPromptSum = 1 + 1 + 1 + 1 + 0.5
+  // Max = sum of all prompt weights (each normalized signal maxes at 1.0)
+  const maxPromptSum =
+    (pw["P1_glob_mentions"] ?? 1) +
+    (pw["P2_package_mentions"] ?? 1) +
+    (pw["P3_scope_keywords"] ?? 1) +
+    (pw["P4_conjunction_chains"] ?? 1) +
+    (pw["P5_explicit_path_count"] ?? 0.5)
   const promptScore = Math.max(0, (promptWeightedSum / maxPromptSum) * 10 + p6Modifier)
 
   // Build fired signals list
@@ -104,8 +109,13 @@ async function _route(input: RouteInput): Promise<RoutingDecision> {
     (codebaseSignals.C3 / 3) * (cw["C3_affected_subset_size"] ?? 1) +
     (codebaseSignals.C4 / 2) * (cw["C4_cross_package_breadth"] ?? 2) +
     (codebaseSignals.C5 / 1) * (cw["C5_multilanguage"] ?? 1)
-  // Max possible: 1+1+1+2+1 = 6
-  const maxCodebaseSum = 1 + 1 + 1 + 2 + 1
+  // Max = sum of all codebase weights
+  const maxCodebaseSum =
+    (cw["C1_total_files"] ?? 1) +
+    (cw["C2_package_count"] ?? 1) +
+    (cw["C3_affected_subset_size"] ?? 1) +
+    (cw["C4_cross_package_breadth"] ?? 2) +
+    (cw["C5_multilanguage"] ?? 1)
   const codebaseScore = (codebaseWeightedSum / maxCodebaseSum) * 10
 
   if (codebaseSignals.C1 > 0) firedSignals.push("C1_total_files")

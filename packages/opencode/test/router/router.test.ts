@@ -1,8 +1,7 @@
 import { describe, test, expect } from "bun:test"
 import { route } from "@/agent/router"
 import { FakeWorkspaceAnalyzer } from "@/agent/router/workspace-analyzer"
-import { MockClassifier } from "@/agent/router/classifier"
-import type { RouteInput, WorkspaceAnalysis } from "@/agent/router/types"
+import type { RouteInput, WorkspaceAnalysis, LLMClassifier } from "@/agent/router/types"
 
 const smallWorkspace: WorkspaceAnalysis = {
   totalFiles: 10, packageCount: 1, packages: ["my-app"],
@@ -15,7 +14,7 @@ const largeMonorepo: WorkspaceAnalysis = {
   topLevelDirs: ["packages", "scripts", "docs"],
 }
 
-function makeInput(prompt: string, analysis: WorkspaceAnalysis, classifier?: MockClassifier): RouteInput {
+function makeInput(prompt: string, analysis: WorkspaceAnalysis, classifier?: LLMClassifier): RouteInput {
   return {
     prompt, workspaceRoot: "/fake", cwd: "/fake", modelId: "test",
     analyzer: new FakeWorkspaceAnalyzer(analysis),
