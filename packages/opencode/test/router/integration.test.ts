@@ -1,7 +1,21 @@
-import { describe, test, expect, beforeEach } from "bun:test"
+import { describe, test, expect, beforeEach, beforeAll, afterAll } from "bun:test"
+import fs from "fs/promises"
+import path from "path"
 import { selectAgentMode, sessionStore, errorBudget } from "@/agent/router/integration"
 import { FakeWorkspaceAnalyzer } from "@/agent/router/workspace-analyzer"
 import type { WorkspaceAnalysis } from "@/agent/router/types"
+
+// Real temp directory with a manifest so computeFingerprint returns a stable hash
+// (integration tests need inheritance to work, which requires fingerprint stability)
+let tmpWorkspace: string
+beforeAll(async () => {
+  tmpWorkspace = await fs.mkdtemp(path.join(import.meta.dir, "tmp-integ-"))
+  await fs.writeFile(path.join(tmpWorkspace, "package.json"), "{}")
+  await fs.mkdir(path.join(tmpWorkspace, "src"))
+})
+afterAll(async () => {
+  await fs.rm(tmpWorkspace, { recursive: true }).catch(() => {})
+})
 
 const largeMonorepo: WorkspaceAnalysis = {
   totalFiles: 500, packageCount: 5,
@@ -21,8 +35,8 @@ const tuiEmit = (msg: string) => { captured.push(msg) }
 function makeInput(prompt: string, analysis: WorkspaceAnalysis, overrides: Record<string, any> = {}) {
   return {
     prompt,
-    workspaceRoot: "/fake",
-    cwd: "/fake",
+    workspaceRoot: tmpWorkspace,
+    cwd: tmpWorkspace,
     modelId: "test",
     sessionId: "test-session",
     turnIndex: 1,
@@ -127,7 +141,7 @@ describe("selectAgentMode", () => {
     for (let i = 0; i < 4; i++) {
       captured.length = 0
       await selectAgentMode({
-        prompt: "test", workspaceRoot: "/fake", cwd: "/fake",
+        prompt: "test", workspaceRoot: tmpWorkspace, cwd: tmpWorkspace,
         modelId: "test", sessionId: `budget-${i}`, turnIndex: 1,
         analyzer: crashingAnalyzer,
         announceOpts: { tuiEmit },

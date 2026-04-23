@@ -62,7 +62,16 @@ async function _route(input: RouteInput): Promise<RoutingDecision> {
   const p2 = extractP2PackageMentions(input.prompt, analysis.packages)
   const p3 = extractP3ScopeKeywords(input.prompt, config.scopeKeywords, config.mutationVerbs)
   const p4 = extractP4ConjunctionChains(input.prompt, config.mutationVerbs)
-  const p5 = extractP5ExplicitPaths(input.prompt, analysis.topLevelDirs)
+  // P5 runs on prompt with P2-matched package names stripped to prevent double-counting
+  // (e.g. "@app/auth/login.ts" would fire P2 AND P5 otherwise)
+  const matchedPackages = analysis.packages.filter(pkg =>
+    extractP2PackageMentions(input.prompt, [pkg]) > 0
+  )
+  let prunedPrompt = input.prompt
+  for (const pkg of matchedPackages) {
+    prunedPrompt = prunedPrompt.split(pkg).join(" ")
+  }
+  const p5 = extractP5ExplicitPaths(prunedPrompt, analysis.topLevelDirs)
   const archetype = classifyArchetype(input.prompt, config.mutationVerbs)
   const pw = config.promptSignalWeights
   const p6Modifier = archetype === "read-only" ? (pw["P6_read_only_modifier"] ?? -1.0) : 0
@@ -93,13 +102,8 @@ async function _route(input: RouteInput): Promise<RoutingDecision> {
   if (p5 > 0) firedSignals.push("P5_explicit_path_count")
   if (archetype === "read-only") firedSignals.push("P6_read_only_modifier")
 
-  // 5. Compute codebase signals (C1–C5)
-  // Reuse P2's matched packages (respects noise-reduction rules)
-  const mentionedPackages = analysis.packages.filter(pkg =>
-    extractP2PackageMentions(input.prompt, [pkg]) > 0
-  )
-
-  const codebaseSignals = computeCodebaseSignals(analysis, mentionedPackages)
+  // 5. Compute codebase signals (C1–C5) — reuse matchedPackages from P2 extraction
+  const codebaseSignals = computeCodebaseSignals(analysis, matchedPackages)
 
   // Normalize each codebase signal to [0,1], multiply by weight, sum, scale to [0,10]
   const cw = config.codebaseSignalWeights

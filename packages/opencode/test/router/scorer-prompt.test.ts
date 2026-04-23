@@ -16,6 +16,21 @@ describe("P1_glob_mentions", () => {
   test("returns 0 for no globs", () => {
     expect(extractP1GlobMentions("fix the login bug")).toBe(0)
   })
+
+  test("does NOT fire on question marks in natural language", () => {
+    expect(extractP1GlobMentions("what does this do?")).toBe(0)
+    expect(extractP1GlobMentions("is this correct?")).toBe(0)
+  })
+
+  test("does NOT fire on code syntax like {} or [] or ?.foo", () => {
+    expect(extractP1GlobMentions("function foo() {} returns void")).toBe(0)
+    expect(extractP1GlobMentions("access arr[0] and obj?.foo")).toBe(0)
+    expect(extractP1GlobMentions("the config is { debug: true }")).toBe(0)
+  })
+
+  test("matches brace alternation with ≥2 options", () => {
+    expect(extractP1GlobMentions("fix *.{ts,tsx} files")).toBe(1)
+  })
 })
 
 describe("P2_package_mentions", () => {
@@ -40,6 +55,16 @@ describe("P2_package_mentions", () => {
   test("caps at 4", () => {
     const manyPkgs = ["@a/b", "@a/c", "@a/d", "@a/e", "@a/f"]
     expect(extractP2PackageMentions("@a/b @a/c @a/d @a/e @a/f", manyPkgs)).toBe(4)
+  })
+
+  test("scoped match has word boundary (no prefix false-positive)", () => {
+    // @app/auth should NOT match @app/authentication
+    expect(extractP2PackageMentions("fix @app/authentication module", ["@app/auth"])).toBe(0)
+    // @app/auth should match @app/auth-utils only if word-chars continue (dash = word char here)
+    expect(extractP2PackageMentions("fix @app/auth-utils", ["@app/auth"])).toBe(0)
+    // Should still match exact name followed by space/punct
+    expect(extractP2PackageMentions("fix @app/auth today", ["@app/auth"])).toBe(1)
+    expect(extractP2PackageMentions("fix @app/auth, please", ["@app/auth"])).toBe(1)
   })
 })
 
@@ -148,5 +173,16 @@ describe("P6 classifyArchetype", () => {
 
   test("question mark without mutation verb → read-only", () => {
     expect(classifyArchetype("what is this function?", mutationVerbs)).toBe("read-only")
+  })
+
+  test("non-English prompt with no recognized verbs → mutating-narrow (neutral, not trivial)", () => {
+    // Chinese: "Refactor all auth modules"
+    expect(classifyArchetype("重构所有认证模块并更新配置", mutationVerbs)).toBe("mutating-narrow")
+    // Should NOT be classified as trivial (which would force single)
+    expect(classifyArchetype("重构所有认证模块并更新配置", mutationVerbs)).not.toBe("trivial")
+  })
+
+  test("short ASCII prompt with no verbs still trivial (no change)", () => {
+    expect(classifyArchetype("ok thanks", mutationVerbs)).toBe("trivial")
   })
 })

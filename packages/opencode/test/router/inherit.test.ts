@@ -59,9 +59,24 @@ describe("shouldInherit", () => {
     expect(shouldInherit(makeInput({ prompt: "explain what you just did" }))).toEqual({ inherit: false, escape: "archetype" })
   })
 
-  test("escape 5: archetype flip only applies when prior was coordinator", () => {
+  test("escape 5a: coordinator→read-only triggers archetype escape", () => {
+    expect(shouldInherit(makeInput({ prompt: "explain what you did" }))).toEqual({ inherit: false, escape: "archetype" })
+  })
+
+  test("escape 5b: single→mutating-broad triggers escalation (fixes asymmetry)", () => {
     const singlePrior = { ...basePrior, mode: "single" as const }
-    expect(shouldInherit(makeInput({ previousDecision: singlePrior, prompt: "explain what you did" }))).toEqual({ inherit: true })
+    expect(shouldInherit(makeInput({
+      previousDecision: singlePrior,
+      prompt: "refactor all auth handlers across @app/auth and @app/api"
+    }))).toEqual({ inherit: false, escape: "escalation" })
+  })
+
+  test("escape 5: single + read-only stays single (no flip needed)", () => {
+    const singlePrior = { ...basePrior, mode: "single" as const }
+    expect(shouldInherit(makeInput({
+      previousDecision: singlePrior,
+      prompt: "explain how the module works across multiple packages"
+    }))).toEqual({ inherit: true })
   })
 
   // Priority tests

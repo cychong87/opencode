@@ -30,8 +30,12 @@ export function shouldInherit(input: InheritInput): InheritResult {
     return { inherit: false, escape: "reroute" }
   }
 
-  // Priority 2: fingerprint drift
-  if (prior.workspaceFingerprint !== input.currentFingerprint) {
+  // Priority 2: fingerprint drift (or fingerprint unavailable — safer to re-route)
+  if (
+    prior.workspaceFingerprint !== input.currentFingerprint ||
+    input.currentFingerprint === "" ||
+    prior.workspaceFingerprint === ""
+  ) {
     return { inherit: false, escape: "drift" }
   }
 
@@ -42,7 +46,11 @@ export function shouldInherit(input: InheritInput): InheritResult {
 
   // Priority 4: short follow-up (trivial/conversational only — read-only queries and mutating
   // prompts are substantive even when short)
-  const hasPathRef = /[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+/.test(input.prompt)
+  // Path reference requires extension OR known project-dir prefix — avoids false positives
+  // on "and/or", "TCP/IP", "CI/CD" which are not paths.
+  const hasPathRef =
+    /[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+\.[a-zA-Z]{1,10}\b/.test(input.prompt) ||
+    /\b(?:src|packages|lib|app|apps|test|tests|spec)\/[a-zA-Z0-9_-]+/.test(input.prompt)
   if (
     input.prompt.length < SHORT_FOLLOW_UP_CHARS &&
     !hasPathRef &&
@@ -51,12 +59,15 @@ export function shouldInherit(input: InheritInput): InheritResult {
     return { inherit: false, escape: "short_follow" }
   }
 
-  // Priority 5: archetype flip to read-only
-  if (prior.mode === "coordinator") {
-    const archetype = classifyArchetype(input.prompt, DEFAULT_MUTATION_VERBS)
-    if (archetype === "read-only") {
-      return { inherit: false, escape: "archetype" }
-    }
+  // Priority 5: significant archetype change warranting re-route
+  const archetype = classifyArchetype(input.prompt, DEFAULT_MUTATION_VERBS)
+  // 5a: coordinator → read-only (de-escalation)
+  if (prior.mode === "coordinator" && archetype === "read-only") {
+    return { inherit: false, escape: "archetype" }
+  }
+  // 5b: single → mutating-broad (escalation — was missing before)
+  if (prior.mode === "single" && archetype === "mutating-broad") {
+    return { inherit: false, escape: "escalation" }
   }
 
   return { inherit: true }

@@ -6,10 +6,25 @@ const COMMON_ENGLISH_WORDS = new Set([
 ])
 
 export function extractP1GlobMentions(prompt: string): number {
-  const globPattern = /\S*(?:\*\*|\*\.|\.\*|\?|[\[{][^\s\]]*[\]}])\S*/g
-  const matches = prompt.match(globPattern)
-  const unique = new Set(matches ?? [])
-  return Math.min(unique.size, 3)
+  // Match actual file/path globs — tight pattern to avoid code-syntax false positives
+  // Accepts: **/*.ts, src/**, *.{ts,tsx}, lib/**/*.js, *.ts
+  // Rejects: standalone ?, {}, [], function() {}, obj?.foo, arr[0]
+  const tokens = prompt.split(/\s+/)
+  const globs = new Set<string>()
+  for (const token of tokens) {
+    if (isGlobPattern(token)) globs.add(token)
+  }
+  return Math.min(globs.size, 3)
+}
+
+function isGlobPattern(token: string): boolean {
+  // Double-star with path separator: **/ or /**
+  if (/\*\*\/|\/\*\*/.test(token)) return true
+  // Wildcard-extension: *.ts, *.tsx (1-10 letter extension, word boundary)
+  if (/\*\.[a-zA-Z][a-zA-Z0-9]{0,9}\b/.test(token)) return true
+  // Brace alternation with at least 2 options, all letters: {ts,tsx}, {js,jsx,ts,tsx}
+  if (/\{[a-zA-Z][a-zA-Z0-9]*(?:,[a-zA-Z][a-zA-Z0-9]*)+\}/.test(token)) return true
+  return false
 }
 
 export function extractP2PackageMentions(prompt: string, packageNames: string[]): number {
@@ -25,7 +40,10 @@ export function extractP2PackageMentions(prompt: string, packageNames: string[])
     let matched = false
 
     if (isScoped) {
-      matched = prompt.includes(pkg)
+      // Word boundary: scoped name must NOT be followed by more word chars.
+      // Prevents @app/auth from matching @app/authentication.
+      const escaped = escapeRegex(pkg)
+      matched = new RegExp(`${escaped}(?![a-zA-Z0-9_-])`).test(prompt)
     } else if (isCommonWord) {
       const backticked = new RegExp("`" + escapeRegex(pkg) + "`")
       const quoted = new RegExp(`["']${escapeRegex(pkg)}["']`)
@@ -114,12 +132,21 @@ export function classifyArchetype(prompt: string, mutationVerbs: string[]): Task
     return "read-only"
   }
 
-  // Check trivial
+  // Check trivial (exact patterns: fix+typo, fix+line N, one line)
   if (TRIVIAL_PATTERNS.some(p => p.test(lower))) {
     return "trivial"
   }
 
-  // Check mutating
+  // Non-English prompts: if the prompt contains significant non-ASCII content AND is
+  // non-trivial in length, we can't reliably classify it. Default to mutating-narrow
+  // (neutral) rather than falsely labeling it trivial and forcing single. This lets
+  // the LLM tiebreaker (if available) handle it, or it falls to band decision.
+  const hasSignificantNonAscii = /[^\x00-\x7F]/.test(prompt) && prompt.length > 10
+  if (!hasMutation && hasSignificantNonAscii) {
+    return "mutating-narrow"
+  }
+
+  // No mutation verb + ASCII → trivial
   if (!hasMutation) {
     return "trivial"
   }

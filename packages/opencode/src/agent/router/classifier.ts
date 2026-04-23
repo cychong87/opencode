@@ -40,6 +40,14 @@ export class GuardedClassifier {
       return null
     }
 
+    // Half-open: if we just exited the cooldown, reset the failure counter
+    // so a single success closes the circuit and a single failure re-trips only after
+    // consecutiveFailuresToTrip more failures (not instantly).
+    if (this.circuitOpenUntil > 0 && this.circuitOpenUntil <= Date.now()) {
+      this.circuitOpenUntil = 0
+      this.consecutiveFailures = 0
+    }
+
     this.callCount++
     try {
       const result = await this.inner.classify(input)
