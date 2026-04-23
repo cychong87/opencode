@@ -151,31 +151,31 @@ Added `team_status` tool and rewrote coordinator prompt with explicit completion
 3. Anti-pattern warnings — "Do NOT call check_mailbox more than 5 times without team_status"
 4. The coordinator adapted mid-run: when core-worker was slow, it started editing files directly itself
 
-#### Round 4: GLM-5 (blocking team_status — 3 runs)
+#### Round 4: GLM-5 (blocking team_status — 3v3 balanced comparison)
 
-Added `wait_for_completion=true` to `team_status` — blocks inside the tool until all workers finish, eliminating the LLM polling loop entirely. Ran 3 times to confirm consistency.
+Added `wait_for_completion=true` to `team_status` — blocks inside the tool until all workers finish, eliminating the LLM polling loop entirely. Ran 3 times each for both single and multi-agent to ensure statistical validity.
 
-| Metric | Single Agent | Multi I2 | Multi I3 | Multi I4 |
-|--------|-------------|---------|---------|---------|
-| **Time** | 2965s (49 min) | **1414s (24 min)** | 2203s (37 min) | **1441s (24 min)** |
-| **Tests** | **2 PASSED** | **2 PASSED** | **2 PASSED** | **2 PASSED** |
-| **Tokens** | 7,541K | 1,194K | **235K** | **247K** |
-| **team_status** | — | 1 | 5 | 2 |
-| **check_mailbox** | — | 0 | 0 | 0 |
-| **Resolved** | **YES** | **YES** | **YES** | **YES** |
+| Run | Mode | Time | Tokens | Tests | Resolved |
+|-----|------|------|--------|-------|----------|
+| H1 | Single | 2965s (49 min) | 7,541K | 2 PASSED | YES |
+| H1b | Single | 2514s (42 min) | 7,209K | 2 PASSED | YES |
+| H1c | Single | 2333s (39 min) | 4,913K | 2 PASSED | YES |
+| I2 | Multi | 1414s (24 min) | 1,194K | 2 PASSED | YES |
+| I3 | Multi | 2203s (37 min) | 235K | 2 PASSED | YES |
+| I4 | Multi | 1441s (24 min) | 247K | 2 PASSED | YES |
 
-**Multi-agent resolve rate: 3/3 (100%)**
+**Resolve rate: 6/6 (100%) — both approaches reliable with GLM-5**
 
-| Summary | Single Agent | Multi-Agent (avg of 3) | Improvement |
-|---------|-------------|----------------------|-------------|
-| **Time** | 2965s (49 min) | 1686s (28 min) | **1.76x faster** |
-| **Tokens** | 7,541K | 559K | **13.5x cheaper** |
+| Summary (n=3 each) | Single Agent | Multi-Agent | Improvement |
+|---------------------|-------------|-------------|-------------|
+| **Avg Time** | 2604s (43 min) | 1686s (28 min) | **1.54x faster** |
+| **Avg Tokens** | 6,554K | 559K | **11.7x cheaper** |
 
 **What blocking wait achieved**: Each polling call triggered a full LLM inference round (~15s, ~24K tokens). The coordinator was spending 93% of wall time on polling. Blocking `team_status` moves the wait from expensive LLM inference loops to a cheap `Effect.sleep` inside the tool. When the blocking wait times out (600s), the coordinator gets actionable options: wait again or jump in and help directly.
 
 ### Lessons Learned
 
-**1. Multi-agent wins on speed, correctness, AND cost for large tasks.** With GLM-5 and blocking `team_status`, multi-agent resolved the 21-file task 3/3 times — averaging 1.76x faster and 13.5x cheaper in tokens than single-agent. With GLM-4.5-air, multi-agent was the *only* approach that produced working code (single agent failed twice).
+**1. Multi-agent wins on speed AND cost for large tasks.** In a balanced 3v3 comparison with GLM-5, multi-agent averaged 1.54x faster and 11.7x cheaper in tokens than single-agent (both 100% resolve rate). With GLM-4.5-air, multi-agent was the *only* approach that produced working code (single agent failed twice).
 
 **2. Polling is the #1 performance killer.** In Round 3, the coordinator spent 93% of wall time on 97 polling calls — each triggering a full LLM inference round. Moving the wait inside the tool (blocking `team_status`) eliminated this entirely. Lesson: never let an LLM agent poll in a loop; use blocking tools instead.
 
