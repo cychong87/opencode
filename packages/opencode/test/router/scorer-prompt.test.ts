@@ -1,6 +1,8 @@
 import { describe, test, expect } from "bun:test"
 import { extractP1GlobMentions, extractP2PackageMentions } from "@/agent/router/scorer"
 import { extractP3ScopeKeywords, extractP4ConjunctionChains } from "@/agent/router/scorer"
+import { extractP5ExplicitPaths, classifyArchetype } from "@/agent/router/scorer"
+import type { TaskArchetype } from "@/agent/router/types"
 
 describe("P1_glob_mentions", () => {
   test("detects ** glob pattern", () => {
@@ -84,5 +86,54 @@ describe("P4_conjunction_chains", () => {
     expect(extractP4ConjunctionChains(
       "refactor A and rename B and update C and delete D and move E", MUTATION_VERBS
     )).toBe(3)
+  })
+})
+
+describe("P5_explicit_path_count", () => {
+  const projectDirs = ["src", "packages", "lib"]
+
+  test("detects paths with file extensions", () => {
+    expect(extractP5ExplicitPaths("fix src/auth/login.ts", projectDirs)).toBe(1)
+  })
+
+  test("detects paths starting with project-dir prefix", () => {
+    expect(extractP5ExplicitPaths("update packages/core/ and lib/utils/", projectDirs)).toBe(2)
+  })
+
+  test("rejects URLs", () => {
+    expect(extractP5ExplicitPaths("check http://example.com/path", projectDirs)).toBe(0)
+  })
+
+  test("rejects and/or", () => {
+    expect(extractP5ExplicitPaths("this and/or that", projectDirs)).toBe(0)
+  })
+
+  test("caps at 4", () => {
+    expect(extractP5ExplicitPaths(
+      "fix src/a.ts src/b.ts src/c.ts src/d.ts src/e.ts", projectDirs
+    )).toBe(4)
+  })
+})
+
+describe("P6 classifyArchetype", () => {
+  const mutationVerbs = ["refactor", "migrate", "rename", "update", "add", "remove",
+    "delete", "replace", "convert", "extract", "move"]
+
+  test("read-only: explain, describe", () => {
+    expect(classifyArchetype("explain how auth works", mutationVerbs)).toBe("read-only")
+    expect(classifyArchetype("describe the architecture", mutationVerbs)).toBe("read-only")
+    expect(classifyArchetype("what does this function do?", mutationVerbs)).toBe("read-only")
+  })
+
+  test("mutating-broad: refactor with scope signals", () => {
+    expect(classifyArchetype("refactor all auth handlers", mutationVerbs)).toBe("mutating-broad")
+  })
+
+  test("mutating-narrow: add a feature", () => {
+    expect(classifyArchetype("add a login button", mutationVerbs)).toBe("mutating-narrow")
+  })
+
+  test("trivial: fix a typo", () => {
+    expect(classifyArchetype("fix the typo on line 5", mutationVerbs)).toBe("trivial")
   })
 })
