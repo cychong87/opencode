@@ -61,7 +61,19 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const models = useModels()
 
     const id = createMemo(() => params.id || undefined)
-    const list = createMemo(() => sync.data.agent.filter((item) => item.mode !== "subagent" && !item.hidden))
+    // Synthetic "auto" agent triggers the backend auto-router. Listed first so it's
+    // the default for new users — they get smart routing without having to pick.
+    type AgentItem = (typeof sync.data.agent)[number]
+    const AUTO_AGENT = {
+      name: "auto",
+      description: "Auto-route based on task complexity (default)",
+      mode: "primary",
+      native: true,
+    } as unknown as AgentItem
+    const list = createMemo(() => [
+      AUTO_AGENT,
+      ...sync.data.agent.filter((item) => item.mode !== "subagent" && !item.hidden),
+    ])
     const connected = createMemo(() => new Set(providers.connected().map((item) => item.id)))
 
     const [saved, setSaved] = persisted(

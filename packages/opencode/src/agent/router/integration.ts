@@ -1,14 +1,21 @@
-import type { RoutingDecision, WorkspaceAnalyzer, LLMClassifier, HintBlock } from "./types"
+import type {
+  RoutingDecision, WorkspaceAnalyzer, LLMClassifier, HintBlock,
+  TelemetryRecord, TaskArchetype, DecisionSource,
+} from "./types"
 import { route } from "../router"
 import { shouldInherit } from "./inherit"
 import { computeFingerprint } from "./fingerprint"
+import { classifyArchetype, computeComposite } from "./scorer"
 import { RouterSessionStore } from "./session-store"
 import { ErrorBudgetTracker } from "./error-budget"
+import { TelemetryWriter, opportunisticCleanup } from "./telemetry"
+import { computeRouterDecisionVersion, sha256Hex } from "./version"
 import {
   formatOverride, formatInherited, formatRouted,
   emitAnnounce, emitBanner, type AnnounceOptions,
 } from "./announce"
-import { renderHintBlock } from "./compose-prompt"
+import defaultWeights from "./weights.json"
+import TIEBREAKER_PROMPT from "../prompt/tiebreaker.txt"
 
 export interface SelectAgentInput {
   prompt: string
@@ -17,28 +24,45 @@ export interface SelectAgentInput {
   modelId: string
   sessionId: string
   turnIndex: number
-  userOverride?: string          // e.g. "coordinator", "plan", etc.
+  userOverride?: string
   analyzer: WorkspaceAnalyzer
   classifier?: LLMClassifier
   announceOpts?: AnnounceOptions
+  /** If true, skip telemetry writes (used in tests). Defaults to false. */
+  suppressTelemetry?: boolean
 }
 
 export interface SelectAgentResult {
   mode: "single" | "coordinator" | "other"
   agentName: string
   decision: RoutingDecision | null
-  coordinatorPromptHints?: string   // rendered hint block to append to coordinator prompt
+  /** Raw hints — caller composes into coordinator system prompt via composeCoordinatorPrompt. */
+  hints?: HintBlock
 }
 
 // Module-level singletons — one per process
 const sessionStore = new RouterSessionStore()
 const errorBudget = new ErrorBudgetTracker()
 
+// Precomputed at module load — tiebreaker prompt hash never changes at runtime
+const TIEBREAKER_PROMPT_SHA = sha256Hex(TIEBREAKER_PROMPT).slice(0, 12)
+const ROUTER_DECISION_VERSION = computeRouterDecisionVersion(TIEBREAKER_PROMPT_SHA)
+
+// Opportunistic cleanup — runs once per process, not blocking
+let cleanupScheduled = false
+function scheduleCleanup(workspaceRoot: string): void {
+  if (cleanupScheduled) return
+  cleanupScheduled = true
+  // Fire-and-forget — don't await
+  opportunisticCleanup(workspaceRoot, 30).catch(() => { /* non-fatal */ })
+}
+
 export async function selectAgentMode(input: SelectAgentInput): Promise<SelectAgentResult> {
+  scheduleCleanup(input.workspaceRoot)
+
   // 1. ANY explicit agent override → short-circuit
   if (input.userOverride) {
     if (input.userOverride === "coordinator") {
-      // Still run analyzer for partition hints
       let hints: HintBlock | undefined
       try {
         const analysis = await input.analyzer.analyze(input.workspaceRoot)
@@ -47,27 +71,23 @@ export async function selectAgentMode(input: SelectAgentInput): Promise<SelectAg
           suggestedPartition: analysis.packages.map(p => [p + "/**"]),
           triggerReasons: ["manual override"],
         }
-      } catch {
-        // Analyzer failure on override path is non-fatal
-      }
+      } catch { /* non-fatal */ }
 
-      const msg = formatOverride("coordinator")
-      emitAnnounce(msg, input.announceOpts)
-
+      emitAnnounce(formatOverride("coordinator"), input.announceOpts)
+      await writeTelemetry(input, "override", null, "mutating-narrow", null)
       return {
         mode: "coordinator",
         agentName: "coordinator",
         decision: null,
-        coordinatorPromptHints: hints ? renderHintsForPrompt(hints) : undefined,
+        hints,
       }
     }
-    // Non-coordinator override (plan, review, etc.)
-    const msg = formatOverride(input.userOverride)
-    emitAnnounce(msg, input.announceOpts)
+    emitAnnounce(formatOverride(input.userOverride), input.announceOpts)
+    await writeTelemetry(input, "override", null, "mutating-narrow", null)
     return { mode: "other", agentName: input.userOverride, decision: null }
   }
 
-  // 2. Turn 2+ inheritance — with escape conditions
+  // 2. Turn 2+ inheritance
   const prior = sessionStore.get(input.sessionId)
   if (prior && input.turnIndex >= 2) {
     let currentFingerprint = ""
@@ -83,8 +103,8 @@ export async function selectAgentMode(input: SelectAgentInput): Promise<SelectAg
     })
 
     if (inheritResult.inherit) {
-      const msg = formatInherited(prior)
-      emitAnnounce(msg, input.announceOpts)
+      emitAnnounce(formatInherited(prior), input.announceOpts)
+      await writeTelemetry(input, "inherited", prior, classifyArchetype(input.prompt, defaultWeights.mutationVerbs), null)
       return {
         mode: prior.mode,
         agentName: prior.mode === "coordinator" ? "coordinator" : "default",
@@ -104,42 +124,86 @@ export async function selectAgentMode(input: SelectAgentInput): Promise<SelectAg
     classifier: input.classifier,
   })
 
-  // Track in error budget
   errorBudget.recordTurn(decision.fallbackPath)
   if (errorBudget.shouldShowBanner()) {
     emitBanner(errorBudget.getBannerMessage(), input.announceOpts)
     errorBudget.bannerShown()
   }
 
-  // Announce
-  const msg = formatRouted(decision)
-  emitAnnounce(msg, input.announceOpts)
-
-  // Persist for next turn's inheritance
+  emitAnnounce(formatRouted(decision), input.announceOpts)
   sessionStore.set(input.sessionId, decision)
+  await writeTelemetry(input, "routed", decision, classifyArchetype(input.prompt, defaultWeights.mutationVerbs), decision.fallbackPath)
 
-  // Build coordinator prompt hints if coordinator mode
-  let coordinatorPromptHints: string | undefined
+  let hints: HintBlock | undefined
   if (decision.mode === "coordinator") {
-    const hints: HintBlock = {
+    hints = {
       suggestedWorkerCount: decision.suggestedWorkerCount,
       suggestedPartition: decision.suggestedPartition,
       triggerReasons: decision.firedSignals,
     }
-    coordinatorPromptHints = renderHintsForPrompt(hints)
   }
 
   return {
     mode: decision.mode,
     agentName: decision.mode === "coordinator" ? "coordinator" : "default",
     decision,
-    coordinatorPromptHints,
+    hints,
   }
 }
 
-function renderHintsForPrompt(hints: HintBlock): string {
-  return renderHintBlock(hints)
+/**
+ * Write a telemetry record to the daily JSONL file. Never throws —
+ * telemetry failure must never break a user's turn.
+ */
+async function writeTelemetry(
+  input: SelectAgentInput,
+  source: DecisionSource,
+  decision: RoutingDecision | null,
+  archetype: TaskArchetype,
+  fallbackPath: string | null,
+): Promise<void> {
+  if (input.suppressTelemetry) return
+  try {
+    const writer = new TelemetryWriter(input.workspaceRoot)
+    const promptSha = sha256Hex(input.prompt).slice(0, 16)
+
+    // For routed decisions, compute scores from decision signals.
+    // For override/inherited, we don't have fresh scores — zero them out.
+    let scores = { prompt: 0, codebase: 0, primary: 0, secondary: 0 }
+    if (decision) {
+      const composite = computeComposite(decision.signals.promptScore, decision.signals.codebaseScore)
+      scores = {
+        prompt: decision.signals.promptScore,
+        codebase: decision.signals.codebaseScore,
+        primary: composite.primary,
+        secondary: composite.secondary,
+      }
+    }
+
+    const record: TelemetryRecord = {
+      ts: new Date().toISOString(),
+      sessionId: input.sessionId,
+      turnIndex: input.turnIndex,
+      source,
+      promptSha,
+      workspaceFingerprint: decision?.workspaceFingerprint ?? "",
+      routerDecisionVersion: ROUTER_DECISION_VERSION,
+      firedSignalNames: decision?.firedSignals ?? [],
+      taskArchetype: archetype,
+      scores,
+      classifier: {
+        invoked: decision?.signals.llmTiebreakerUsed ?? false,
+        latencyMs: decision?.signals.llmTiebreakerLatencyMs,
+        failureMode: fallbackPath,
+      },
+      finalDecision: {
+        mode: decision?.mode ?? (source === "override" ? "coordinator" : "single"),
+        confidence: decision?.confidence ?? "high",
+      },
+      fallbackPath,
+    }
+    await writer.write(record)
+  } catch { /* non-fatal */ }
 }
 
-// Export for testing
-export { sessionStore, errorBudget }
+export { sessionStore, errorBudget, ROUTER_DECISION_VERSION, TIEBREAKER_PROMPT_SHA }

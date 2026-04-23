@@ -42,8 +42,20 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     }
 
     const agent = iife(() => {
-      const agents = createMemo(() => sync.data.agent.filter((x) => x.mode !== "subagent" && !x.hidden))
-      const visibleAgents = createMemo(() => sync.data.agent.filter((x) => !x.hidden))
+      // Synthetic "auto" agent triggers the auto-router on the backend.
+      // Listed first so it's the default when no explicit agent is selected.
+      type AgentItem = (typeof sync.data.agent)[number]
+      const AUTO_AGENT = {
+        name: "auto",
+        description: "Auto-route based on task complexity (default)",
+        mode: "primary",
+        native: true,
+      } as unknown as AgentItem
+      const agents = createMemo(() => [
+        AUTO_AGENT,
+        ...sync.data.agent.filter((x) => x.mode !== "subagent" && !x.hidden),
+      ])
+      const visibleAgents = createMemo(() => [AUTO_AGENT, ...sync.data.agent.filter((x) => !x.hidden)])
       const [agentStore, setAgentStore] = createStore({
         current: undefined as string | undefined,
       })

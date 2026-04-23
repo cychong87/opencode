@@ -42,6 +42,7 @@ function makeInput(prompt: string, analysis: WorkspaceAnalysis, overrides: Recor
     turnIndex: 1,
     analyzer: new FakeWorkspaceAnalyzer(analysis),
     announceOpts: { tuiEmit },
+    suppressTelemetry: true,
     ...overrides,
   }
 }
@@ -133,6 +134,21 @@ describe("selectAgentMode", () => {
     expect(captured[0]).not.toContain("inherited")
   })
 
+  test("telemetry record is written when suppressTelemetry is false", async () => {
+    const result = await selectAgentMode(makeInput("fix the typo", smallWorkspace, {
+      suppressTelemetry: false,  // explicitly enable
+      sessionId: "telemetry-test",
+    }))
+    expect(result.mode).toBe("single")
+    // Check that the daily JSONL file was created
+    const today = new Date().toISOString().slice(0, 10)
+    const file = path.join(tmpWorkspace, ".opencode", `router-decisions-${today}.jsonl`)
+    const content = await fs.readFile(file, "utf-8")
+    expect(content).toContain('"source":"routed"')
+    expect(content).toContain('"routerDecisionVersion":')
+    expect(content).toContain('"promptSha":')
+  })
+
   test("error budget banner fires after multiple fallbacks", async () => {
     const crashingAnalyzer = {
       analyze: async () => { throw new Error("crash") },
@@ -145,6 +161,7 @@ describe("selectAgentMode", () => {
         modelId: "test", sessionId: `budget-${i}`, turnIndex: 1,
         analyzer: crashingAnalyzer,
         announceOpts: { tuiEmit },
+        suppressTelemetry: true,
       })
     }
     // The 4th turn should have triggered the banner

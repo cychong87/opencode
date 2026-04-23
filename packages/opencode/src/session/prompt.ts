@@ -49,6 +49,8 @@ import { InstanceState } from "@/effect"
 import { TaskTool, type TaskPromptOps } from "@/tool/task"
 import { SessionRunState } from "./run-state"
 import { EffectBridge } from "@/effect"
+import { autoRoute, extractPromptText } from "@/agent/router/wire"
+import { composeCoordinatorPrompt } from "@/agent/router/compose-prompt"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -920,8 +922,44 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     })
 
     const createUserMessage = Effect.fn("SessionPrompt.createUserMessage")(function* (input: PromptInput) {
-      const agentName = input.agent || (yield* agents.defaultAgent())
-      const ag = yield* agents.get(agentName)
+      // Auto-routing: triggered when `input.agent` is omitted OR explicitly set to "auto".
+      // TUI/Desktop clients send "auto" from their agent picker when no specific agent
+      // is chosen. CLI omits the field when --agent isn't passed.
+      // Never fails the turn — on any router error, falls through to default resolution.
+      const isAutoRoute = !input.agent || input.agent === "auto"
+      let routedAgentName: string | undefined = isAutoRoute ? undefined : input.agent
+      let routerHints:
+        | { suggestedWorkerCount?: number; suggestedPartition?: string[][]; triggerReasons: string[] }
+        | undefined
+      if (isAutoRoute) {
+        const msgsExit = yield* sessions.messages({ sessionID: input.sessionID }).pipe(Effect.exit)
+        const existingMsgs = Exit.isSuccess(msgsExit) ? msgsExit.value : []
+        const turnIndex = existingMsgs.filter((m: any) => m.info?.role === "user").length + 1
+        const promptText = extractPromptText(input.parts as any)
+        if (promptText.length > 0) {
+          const routeResult = yield* autoRoute({
+            prompt: promptText,
+            sessionID: input.sessionID,
+            turnIndex,
+            userOverride: undefined,
+          })
+          if (routeResult && routeResult.agentName !== "default") {
+            routedAgentName = routeResult.agentName
+          }
+          if (routeResult?.hints) {
+            routerHints = routeResult.hints
+          }
+        }
+      }
+
+      const agentName = routedAgentName || (yield* agents.defaultAgent())
+      let ag = yield* agents.get(agentName)
+      if (ag && routerHints && agentName === "coordinator" && ag.prompt) {
+        // Inject router hints into the coordinator system prompt via {{ROUTER_HINTS}} placeholder
+        try {
+          ag = { ...ag, prompt: composeCoordinatorPrompt(ag.prompt, routerHints) }
+        } catch { /* composition failure — keep original prompt */ }
+      }
       if (!ag) {
         const available = (yield* agents.list()).filter((a) => !a.hidden).map((a) => a.name)
         const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""

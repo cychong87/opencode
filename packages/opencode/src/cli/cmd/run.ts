@@ -565,6 +565,8 @@ export const RunCommand = cmd({
       const agent = await (async () => {
         if (!args.agent) return undefined
         const name = args.agent
+        // "auto" is a sentinel that triggers the router — skip local-agent validation
+        if (name === "auto") return "auto"
 
         // When attaching, validate against the running server instead of local Instance state.
         if (args.attach) {
