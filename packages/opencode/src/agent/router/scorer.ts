@@ -44,3 +44,32 @@ export function extractP2PackageMentions(prompt: string, packageNames: string[])
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
+
+export function extractP3ScopeKeywords(
+  prompt: string,
+  scopeKeywords: string[],
+  mutationVerbs: string[],
+): number {
+  const lower = prompt.toLowerCase()
+  const hasMutationVerb = mutationVerbs.some(v => lower.includes(v))
+  if (!hasMutationVerb) return 0
+
+  let count = 0
+  for (const kw of scopeKeywords) {
+    if (lower.includes(kw.toLowerCase())) count++
+  }
+  return Math.min(count, 3)
+}
+
+export function extractP4ConjunctionChains(prompt: string, mutationVerbs: string[]): number {
+  const lower = prompt.toLowerCase()
+  const clauses = lower.split(/\s+(?:and|then|also)\s+/)
+
+  let mutationClauseCount = 0
+  for (const clause of clauses) {
+    if (mutationVerbs.some(v => clause.includes(v))) {
+      mutationClauseCount++
+    }
+  }
+  return Math.min(Math.max(0, mutationClauseCount - 1), 3)
+}
