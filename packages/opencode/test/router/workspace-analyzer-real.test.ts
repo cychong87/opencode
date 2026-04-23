@@ -42,4 +42,16 @@ describe("RealWorkspaceAnalyzer", () => {
     expect(result.packageCount).toBe(1) // min 1
     expect(result.languageCount).toBe(0)
   })
+
+  test("excludes node_modules from file count and package detection", async () => {
+    const analyzer = new RealWorkspaceAnalyzer()
+    const result = await analyzer.analyze(path.join(FIXTURES, "with-nodemodules"))
+    // Should count only src/index.ts + package.json, NOT node_modules/some-pkg/index.js
+    expect(result.totalFiles).toBeLessThanOrEqual(2)
+    // Should detect only 1 package (root), NOT node_modules/some-pkg
+    expect(result.packageCount).toBe(1)
+    expect(result.packages).not.toContain("node_modules/some-pkg")
+    // node_modules should NOT appear in topLevelDirs
+    expect(result.topLevelDirs).not.toContain("node_modules")
+  })
 })

@@ -24,37 +24,39 @@ const MANIFEST_LANG_MAP: Record<string, string> = {
   "pom.xml": "java",
 }
 
+// Directories to exclude from all scans (file count, manifest discovery)
+const EXCLUDED_DIRS = new Set(["node_modules", ".git", "dist", "build", ".next", ".turbo", ".cache"])
+
+// Single-workspace scoped: cache is per-instance, first call only.
+// Create a new instance for each workspace/session.
 export class RealWorkspaceAnalyzer implements WorkspaceAnalyzer {
   private cache: WorkspaceAnalysis | null = null
 
   async analyze(workspaceRoot: string): Promise<WorkspaceAnalysis> {
     if (this.cache) return this.cache
 
-    // Count source files (exclude common non-source dirs)
-    const sourceGlob = new Glob("**/*")
+    // Count source files — exclude non-source dirs
     let totalFiles = 0
-    for await (const _file of sourceGlob.scan({
-      cwd: workspaceRoot,
-      onlyFiles: true,
-    })) {
-      totalFiles++
-    }
+    await countFilesRecursive(workspaceRoot, workspaceRoot, (count) => { totalFiles = count })
 
-    // Find manifests at depth 0, 1, and 2
-    const manifestPaths: string[] = []
+    // Find manifests at depth 0, 1, and 2 — excluding node_modules etc.
+    const manifestSet = new Set<string>()
     for (const name of MANIFEST_NAMES) {
       for (const pattern of [name, `*/${name}`, `*/*/${name}`]) {
         const glob = new Glob(pattern)
         for await (const match of glob.scan({ cwd: workspaceRoot, onlyFiles: true })) {
-          manifestPaths.push(match)
+          // Skip if any path segment is an excluded dir
+          if (!isExcludedPath(match)) {
+            manifestSet.add(match)
+          }
         }
       }
     }
-    manifestPaths.sort()
+    const manifestPaths = [...manifestSet].sort()
 
-    // Derive packages from depth-1 manifests
+    // Derive packages from depth-1+ manifests (exclude root manifest)
     const packages = manifestPaths
-      .filter(p => p.includes("/"))
+      .filter(p => p.includes("/") && !isExcludedPath(p))
       .map(p => path.dirname(p))
 
     // Count distinct languages from manifest types
@@ -83,4 +85,23 @@ export class RealWorkspaceAnalyzer implements WorkspaceAnalyzer {
     this.cache = result
     return result
   }
+}
+
+function isExcludedPath(filePath: string): boolean {
+  return filePath.split("/").some(segment => EXCLUDED_DIRS.has(segment))
+}
+
+async function countFilesRecursive(
+  root: string,
+  workspaceRoot: string,
+  onComplete: (count: number) => void,
+): Promise<void> {
+  let count = 0
+  const sourceGlob = new Glob("**/*")
+  for await (const file of sourceGlob.scan({ cwd: workspaceRoot, onlyFiles: true })) {
+    if (!isExcludedPath(file)) {
+      count++
+    }
+  }
+  onComplete(count)
 }
