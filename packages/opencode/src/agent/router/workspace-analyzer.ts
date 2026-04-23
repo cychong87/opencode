@@ -36,8 +36,7 @@ export class RealWorkspaceAnalyzer implements WorkspaceAnalyzer {
     if (this.cache) return this.cache
 
     // Count source files — exclude non-source dirs
-    let totalFiles = 0
-    await countFilesRecursive(workspaceRoot, workspaceRoot, (count) => { totalFiles = count })
+    const totalFiles = await countFiles(workspaceRoot)
 
     // Find manifests at depth 0, 1, and 2 — excluding node_modules etc.
     const manifestSet = new Set<string>()
@@ -54,9 +53,9 @@ export class RealWorkspaceAnalyzer implements WorkspaceAnalyzer {
     }
     const manifestPaths = [...manifestSet].sort()
 
-    // Derive packages from depth-1+ manifests (exclude root manifest)
+    // Derive packages from depth-1+ manifests (root manifest excluded — no "/" in path)
     const packages = manifestPaths
-      .filter(p => p.includes("/") && !isExcludedPath(p))
+      .filter(p => p.includes("/"))
       .map(p => path.dirname(p))
 
     // Count distinct languages from manifest types
@@ -70,7 +69,7 @@ export class RealWorkspaceAnalyzer implements WorkspaceAnalyzer {
     // Top-level directories
     const entries = await fs.readdir(workspaceRoot, { withFileTypes: true })
     const topLevelDirs = entries
-      .filter(e => e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules")
+      .filter(e => e.isDirectory() && !e.name.startsWith(".") && !EXCLUDED_DIRS.has(e.name))
       .map(e => e.name)
       .sort()
 
@@ -91,17 +90,13 @@ function isExcludedPath(filePath: string): boolean {
   return filePath.split("/").some(segment => EXCLUDED_DIRS.has(segment))
 }
 
-async function countFilesRecursive(
-  root: string,
-  workspaceRoot: string,
-  onComplete: (count: number) => void,
-): Promise<void> {
+async function countFiles(workspaceRoot: string): Promise<number> {
   let count = 0
-  const sourceGlob = new Glob("**/*")
-  for await (const file of sourceGlob.scan({ cwd: workspaceRoot, onlyFiles: true })) {
+  const glob = new Glob("**/*")
+  for await (const file of glob.scan({ cwd: workspaceRoot, onlyFiles: true })) {
     if (!isExcludedPath(file)) {
       count++
     }
   }
-  onComplete(count)
+  return count
 }

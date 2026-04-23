@@ -12,12 +12,17 @@ const MANIFEST_PATTERNS = [
   "*.sln", "*/*.sln",
 ]
 
+const EXCLUDED_SEGMENTS = new Set(["node_modules", ".git", "dist", "build"])
+
 export async function computeFingerprint(workspaceRoot: string): Promise<string> {
   const manifests: string[] = []
   for (const pattern of MANIFEST_PATTERNS) {
     const glob = new Glob(pattern)
     for await (const file of glob.scan({ cwd: workspaceRoot, onlyFiles: true })) {
-      manifests.push(file)
+      // Exclude manifests inside node_modules, .git, etc.
+      if (!file.split("/").some(seg => EXCLUDED_SEGMENTS.has(seg))) {
+        manifests.push(file)
+      }
     }
   }
   manifests.sort()
