@@ -10,9 +10,9 @@ OpenCode now supports multi-agent coordination — a system where multiple AI ag
 |----------|-------|---------|
 | **Background Execution** | `run_in_background` (task param), `check_task`, `stop_task` | Launch agents without blocking, poll for results, cancel |
 | **Messaging** | `send_message`, `check_mailbox` | 8 typed message types for agent-to-agent communication |
-| **Team Management** | `team_create`, `team_delete`, `spawn_worker`, `terminate_worker` | Create teams, spawn parallel workers with idle/resume lifecycle |
+| **Team Management** | `team_create`, `team_delete`, `spawn_worker`, `terminate_worker`, `team_status` | Create teams, spawn parallel workers with idle/resume lifecycle, check completion |
 | **Shared Tasks** | `team_task_create`, `team_task_list`, `team_task_update` | Team-wide work queue with owner assignment and dependency tracking |
-| **Coordinator Agent** | Built-in `coordinator` agent | System prompt guiding Research → Plan → Delegate → Monitor → Synthesize → Verify |
+| **Coordinator Agent** | Built-in `coordinator` agent | System prompt guiding Plan → Delegate → Monitor → Verify → Cleanup |
 
 ## How It Differs From Standard Subagents
 
@@ -59,7 +59,7 @@ Use spawn_worker to build all 3 in parallel.
 The coordinator will:
 1. `team_create` — create the team
 2. `spawn_worker` × 3 — launch workers for each module
-3. `check_mailbox` — poll for idle notifications as workers complete
+3. `team_status` — check when all workers are idle
 4. Verify results — run tests
 5. `terminate_worker` + `team_delete` — clean up
 
@@ -106,7 +106,9 @@ Each worker:
 ### Case Study 3: SWE-bench Verified — SymPy Rich Comparison (21 files)
 
 **Task**: `sympy__sympy-13091` — fix comparison methods across 21 files in 6 modules to return `NotImplemented` instead of `False` for unknown types.
-**Model**: GLM-4.5-air | **Verification**: 2 FAIL_TO_PASS tests
+**Verification**: 2 FAIL_TO_PASS tests (`test_equality`, `test_comparisons_with_unknown_type`)
+
+#### Round 1: GLM-4.5-air
 
 | Metric | Single (run 1) | Single (run 2) | Multi-Agent (4 workers) |
 |--------|---------------|---------------|------------------------|
@@ -116,29 +118,57 @@ Each worker:
 | **Tokens** | 3,648K | 6,779K | 7,846K |
 | **Resolved** | **NO** | **NO** | **YES (partial)** |
 
-**What happened**:
-- **Single agent (run 1)**: Modified only `basic.py`, reverted `numbers.py`. Tests fail.
-- **Single agent (run 2)**: Modified 12 files (good coverage!) but introduced an `IndentationError` in `numbers.py` — broke the codebase. Tests can't run.
-- **Multi-agent**: Spawned 4 workers (`core-worker`, `physics-worker`, `polys-worker`, `misc-worker`). Workers completed by the 5-minute mark. Modified 6 files across 3 modules. **Tests pass.**
+#### Round 2: GLM-5 (before coordinator fix)
 
-**Key insight**: The single agent attempted 12 files sequentially but broke the code with accumulated errors. The multi-agent approach gave each worker a focused scope, producing cleaner edits that didn't break each other.
+| Metric | Single Agent | Multi-Agent (4 workers) |
+|--------|-------------|------------------------|
+| **Time** | 2965s (49 min) | 863s (killed — stuck) |
+| **Files modified** | 20 | 20 |
+| **Tests** | **2 PASSED** | **1 FAILED** |
+| **Tokens** | 7,541K | 2,057K |
+| **Resolved** | **YES** | **NO** |
+| **check_mailbox calls** | — | 115 (infinite loop) |
+
+**Bug found**: The coordinator got stuck in an infinite `check_mailbox` polling loop after workers finished — it never proceeded to verification.
+
+#### Round 3: GLM-5 (after coordinator fix)
+
+Added `team_status` tool and rewrote coordinator prompt with explicit completion detection.
+
+| Metric | Single Agent | Multi-Agent (Fixed) | Improvement |
+|--------|-------------|---------------------|-------------|
+| **Time** | 2965s (49 min) | **1516s (25 min)** | **1.95x faster** |
+| **Files modified** | 20 | 20 | Same coverage |
+| **Tests** | **2 PASSED** | **2 PASSED** | Both resolved |
+| **Tokens** | 7,541K | **2,305K** | **3.3x cheaper** |
+| **Resolved** | **YES** | **YES** | |
+| **check_mailbox** | — | 30 (bounded) | Down from 115 |
+| **team_status** | — | 67 | New tool |
+
+**What the coordinator fix achieved**:
+1. `team_status` tool — direct worker status check instead of blind mailbox polling
+2. Rewritten prompt — explicit exit condition: "when team_status shows 0 active, run tests immediately"
+3. Anti-pattern warnings — "Do NOT call check_mailbox more than 5 times without team_status"
+4. The coordinator adapted mid-run: when core-worker was slow, it started editing files directly itself
 
 ### Lessons Learned
 
-**1. Multi-agent's biggest advantage is correctness, not speed.** On the 21-file task, the single agent was faster but broke the code in both runs. Multi-agent was slower but produced working code. For large tasks, reliability matters more than raw speed.
+**1. Multi-agent wins on both speed AND correctness for large tasks.** With GLM-5 and the coordinator fix, multi-agent resolved the 21-file task in 25 min vs 49 min single-agent — 1.95x faster and 3.3x cheaper in tokens. With GLM-4.5-air, multi-agent was the *only* approach that produced working code (single agent failed twice).
 
 **2. Context degradation is real.** A single agent editing 12+ files sequentially accumulates context and introduces errors (circular imports, indentation bugs). Workers with fresh, focused context avoid this — each only handles 2-5 files.
 
-**3. Parallelism overhead is significant on small models.** With GLM-4.5-air (~8s/call), the overhead of team management (team_create, spawn_worker × N, check_mailbox × N, terminate × N) costs 70-100 seconds. This only pays off when the task takes 5+ minutes for a single agent.
+**3. Completion detection is critical.** The biggest bug was the coordinator getting stuck in an infinite mailbox polling loop. Adding `team_status` (direct status check) and explicit exit conditions in the prompt fixed this. Lesson: LLM-driven loops need hard exit conditions, not just "check regularly."
 
-**4. The crossover point for multi-agent value:**
+**4. The coordinator adapts when given the right tools.** In the fixed run, when core-worker was slow, the coordinator started editing files directly itself (19 reads, 8 edits). Good system prompts enable adaptive behavior.
+
+**5. The crossover point for multi-agent value:**
 - **<5 files**: Single agent wins (overhead > savings)
 - **5-10 files**: Tie (depends on task structure)
-- **>10 files**: Multi-agent wins (correctness advantage dominates)
+- **>10 files**: Multi-agent wins (speed + correctness)
 
-**5. Both single agent runs failed on the 21-file task.** This isn't a fluke — the task exceeds what a single sequential agent can handle reliably with GLM-4.5-air. Multi-agent makes it tractable by decomposing into manageable pieces.
+**6. Parallelism overhead is significant on small models.** With GLM-4.5-air (~8s/call), the overhead of team management costs 70-100 seconds. This only pays off when the task takes 5+ minutes for a single agent.
 
-**6. Workers finish fast, coordinator overhead is the bottleneck.** In the multi-agent run, all 4 workers completed by minute 5. The remaining 16 minutes was the coordinator doing verification and additional edits. Reducing coordinator overhead is the key optimization target.
+**7. Workers finish fast, coordinator overhead is the bottleneck.** Workers completed by minute 5-8 in most runs. Reducing coordinator overhead (faster completion detection, less polling) is the key optimization target.
 
 ### When to Use Multi-Agent
 
@@ -180,6 +210,7 @@ Each worker:
 | `team_delete` | `team_name` | Delete team (requires all workers terminated) |
 | `spawn_worker` | `name`, `prompt`, `team_name`, `agent_type?` | Launch worker with idle/resume lifecycle |
 | `terminate_worker` | `name`, `team_name` | Graceful shutdown via mailbox |
+| `team_status` | `team_name` | Check all member statuses (active/idle/completed/failed) |
 
 ### Shared Task List
 
@@ -303,6 +334,8 @@ S3: cc5741d3e — Team + shared tasks + worker lifecycle
 S4: 785202ab8 — Coordinator agent + notifications + E2E + README
 S5: cc1289673 — Code review bugfixes (6 fixes)
 S6: 008172aa1 — Worker CWD fix
+S7: 562ede096 — check_mailbox mark_read default fix
+S8: e6bd63633 — team_status tool + coordinator polling loop fix
 ```
 
 Full diff: https://github.com/cychong87/opencode/compare/main...feature/multi-agent
