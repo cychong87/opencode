@@ -425,6 +425,8 @@ Emitted via opencode's transcript event layer (same mechanism that emits agent-l
 
 **Ordering guarantee:** announce emitted-and-flushed *before* agent emits first token. No interleaving.
 
+**TUI integration verified:** The TUI already has an agent-picker dialog (`dialog-agent.tsx`) that calls `local.agent.set()`, a toast notification system (`toast.tsx` with info/warning/error variants), and a `BusEvent` + `TuiEvent.ToastShow` event layer. The announce functions emit toasts in TUI mode and stderr in CLI mode. The manual override works via the agent picker (TUI equivalent of `--agent coordinator`). Auto-routing is transparent in both modes — it runs at the `selectAgent` level in `agent.ts`.
+
 ### Coordinator prompt composition — `{{ROUTER_HINTS}}` placeholder
 
 `coordinator.txt` is modified exactly once to add a `{{ROUTER_HINTS}}` placeholder at a deliberate insertion point (after the role/workflow section, before the anti-patterns section).

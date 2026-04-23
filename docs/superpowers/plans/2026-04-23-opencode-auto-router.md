@@ -1822,13 +1822,48 @@ export function formatRouted(decision: RoutingDecision): string {
   return `→ Routing: ${decision.mode} · ${decision.reason}`
 }
 
-export function emitAnnounce(message: string): void {
+/**
+ * Emit announce message to the appropriate frontend channel.
+ *
+ * opencode has THREE display modes:
+ * 1. TUI (interactive Ink/SolidJS app) — emit a TuiEvent.ToastShow via BusEvent
+ * 2. CLI non-interactive (piped) — write to stderr, no ANSI
+ * 3. CLI interactive (TTY) — write to stderr with ANSI color
+ *
+ * The TUI adapter is wired in Task 20 (agent.ts integration) where the
+ * BusEvent system is available. This function handles CLI modes only.
+ * For TUI mode, the caller should emit:
+ *   BusEvent.fire(TuiEvent.ToastShow({ message, variant: "info" }))
+ *
+ * See: packages/opencode/src/cli/cmd/tui/event.ts (TuiEvent.ToastShow)
+ * See: packages/opencode/src/cli/cmd/tui/ui/toast.tsx (Toast display)
+ */
+export interface AnnounceOptions {
+  /** If provided, fires a TUI toast instead of stderr. */
+  tuiEmit?: (message: string, variant: "info" | "warning") => void
+}
+
+export function emitAnnounce(message: string, opts?: AnnounceOptions): void {
+  // TUI mode — use toast system
+  if (opts?.tuiEmit) {
+    opts.tuiEmit(message, "info")
+    return
+  }
+  // CLI mode — stderr
   const isTTY = process.stderr.isTTY
   if (isTTY) {
     process.stderr.write(`\x1b[36m${message}\x1b[0m\n`)
   } else {
     process.stderr.write(message + "\n")
   }
+}
+
+export function emitBanner(message: string, opts?: AnnounceOptions): void {
+  if (opts?.tuiEmit) {
+    opts.tuiEmit(message, "warning")
+    return
+  }
+  process.stderr.write(message + "\n")
 }
 ```
 
@@ -2501,7 +2536,7 @@ The exact integration depends on how the current agent selection works. The patt
 1. Before the agent is selected/built, check for `--agent` override flag.
 2. If no override, check for turn inheritance via `shouldInherit()`.
 3. If no inheritance, call `route()` to make the routing decision.
-4. Announce the decision via `emitAnnounce()`.
+4. Announce the decision via `emitAnnounce()`. **In TUI mode**, wire the `tuiEmit` adapter by importing `BusEvent` and `TuiEvent` from `@tui/event` and passing `(msg, variant) => BusEvent.fire(TuiEvent.ToastShow({ message: msg, variant }))`. The TUI's toast system (`packages/opencode/src/cli/cmd/tui/ui/toast.tsx`) displays this as a boxed notification. **In CLI mode**, pass no adapter — `emitAnnounce` defaults to stderr.
 5. If coordinator mode, use `composeCoordinatorPrompt()` to inject hints.
 6. Persist the decision via `RouterSessionStore`.
 
