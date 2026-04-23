@@ -33,6 +33,7 @@ export interface RoutingDecision {
   }
   decidedAt: number
   workspaceFingerprint: string
+  fallbackPath: string | null
 }
 
 export interface WorkspaceAnalysis {

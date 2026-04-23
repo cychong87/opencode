@@ -8,7 +8,8 @@ const MANIFEST_PATTERNS = [
   "pyproject.toml", "*/pyproject.toml",
   "Cargo.toml", "*/Cargo.toml",
   "go.mod", "*/go.mod",
-  "pom.xml", "*.sln",
+  "pom.xml", "*/pom.xml",
+  "*.sln", "*/*.sln",
 ]
 
 export async function computeFingerprint(workspaceRoot: string): Promise<string> {

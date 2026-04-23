@@ -55,4 +55,14 @@ describe("computeFingerprint", () => {
       expect(fp1).not.toBe(fp2)
     } finally { await tmp.cleanup() }
   })
+
+  test("workspace with zero manifests still produces valid hash", async () => {
+    const tmp = await makeTmpDir()
+    try {
+      await fs.mkdir(path.join(tmp.path, "src"))
+      const fp = await computeFingerprint(tmp.path)
+      expect(fp).toHaveLength(16)
+      expect(/^[0-9a-f]{16}$/.test(fp)).toBe(true)
+    } finally { await tmp.cleanup() }
+  })
 })

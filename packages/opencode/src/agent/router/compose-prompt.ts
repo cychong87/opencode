@@ -7,9 +7,9 @@ export function composeCoordinatorPrompt(base: string, hints: HintBlock | null):
     throw new Error("coordinator.txt is missing {{ROUTER_HINTS}} placeholder")
   }
   if (!hints) {
-    return base.replace(PLACEHOLDER, "").replace(/\n{3,}/g, "\n\n")
+    return base.replaceAll(PLACEHOLDER, "").replace(/\n{3,}/g, "\n\n")
   }
-  return base.replace(PLACEHOLDER, renderHintBlock(hints))
+  return base.replaceAll(PLACEHOLDER, renderHintBlock(hints))
 }
 
 export function renderHintBlock(hints: HintBlock): string {

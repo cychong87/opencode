@@ -54,4 +54,14 @@ describe("renderHintBlock", () => {
     expect(block).not.toContain("Worker")
     expect(block).toContain("mutating-broad")
   })
+
+  test("handles empty triggerReasons without crashing", () => {
+    const hints: HintBlock = {
+      suggestedWorkerCount: 1,
+      triggerReasons: [],
+    }
+    const block = renderHintBlock(hints)
+    expect(block).toContain("Suggested worker count: 1")
+    expect(block).not.toContain("Signals that triggered")
+  })
 })
