@@ -136,4 +136,17 @@ describe("P6 classifyArchetype", () => {
   test("trivial: fix a typo", () => {
     expect(classifyArchetype("fix the typo on line 5", mutationVerbs)).toBe("trivial")
   })
+
+  test("read-only verb + mutation verb → NOT read-only", () => {
+    expect(classifyArchetype("show me how to refactor all auth", mutationVerbs)).not.toBe("read-only")
+    expect(classifyArchetype("explain what to rename in the module", mutationVerbs)).not.toBe("read-only")
+  })
+
+  test("question mark + mutation verb → NOT read-only", () => {
+    expect(classifyArchetype("can you refactor this?", mutationVerbs)).not.toBe("read-only")
+  })
+
+  test("question mark without mutation verb → read-only", () => {
+    expect(classifyArchetype("what is this function?", mutationVerbs)).toBe("read-only")
+  })
 })

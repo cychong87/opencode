@@ -105,11 +105,12 @@ export function classifyArchetype(prompt: string, mutationVerbs: string[]): Task
   const words = lower.split(/\s+/)
   const firstWord = words[0]
 
-  // Check read-only first
-  if (READ_ONLY_VERBS.some(v => firstWord === v || lower.startsWith(v))) {
+  // Check read-only — only if NO mutation verb is present
+  const hasMutation = mutationVerbs.some(v => lower.includes(v))
+  if (READ_ONLY_VERBS.some(v => firstWord === v) && !hasMutation) {
     return "read-only"
   }
-  if (lower.includes("?") && !mutationVerbs.some(v => lower.includes(v))) {
+  if (lower.includes("?") && !hasMutation) {
     return "read-only"
   }
 
@@ -119,8 +120,7 @@ export function classifyArchetype(prompt: string, mutationVerbs: string[]): Task
   }
 
   // Check mutating
-  const hasMutationVerb = mutationVerbs.some(v => lower.includes(v))
-  if (!hasMutationVerb) {
+  if (!hasMutation) {
     return "trivial"
   }
 
@@ -151,6 +151,8 @@ export function computeCodebaseSignals(
   const C1 = band(analysis.totalFiles, [50, 200, 1000])
   const C2 = band(analysis.packageCount, [2, 4, 8])
 
+  // Proportional estimate — assumes uniform file distribution across packages.
+  // TODO: use per-package file counts when WorkspaceAnalysis carries them (v2).
   const affectedSubset = mentionedPackages.length > 0
     ? Math.floor(analysis.totalFiles * (mentionedPackages.length / Math.max(1, analysis.packageCount)))
     : 0

@@ -114,4 +114,14 @@ describe("applyFloorRules", () => {
     const result = applyFloorRules("trivial", { C3: 2 }, 7)
     expect(result).toBeNull()
   })
+
+  test("boundary: C3 exactly 1 passes through (threshold is < 1)", () => {
+    const result = applyFloorRules("mutating-broad", { C3: 1 }, 4)
+    expect(result).toBeNull()
+  })
+
+  test("boundary: promptScore exactly 6 passes through (threshold is < 6)", () => {
+    const result = applyFloorRules("mutating-broad", { C3: 0 }, 6)
+    expect(result).toBeNull()
+  })
 })
