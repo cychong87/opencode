@@ -21,8 +21,9 @@ When routing kicks in, you'll see a one-line announcement before the agent start
 → Routing: coordinator · 5 packages, 200 files
 → Routing: single · single-package edit
 → Routing: coordinator · inherited from previous turn
-→ Routing: coordinator (manual override)
 ```
+
+Explicitly passing `--agent <name>` bypasses the router entirely — no announce line fires, the chosen agent just runs.
 
 ### To disable the LLM tiebreaker
 
