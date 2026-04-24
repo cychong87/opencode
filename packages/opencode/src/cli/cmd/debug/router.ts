@@ -7,6 +7,7 @@ import { route } from "../../../agent/router"
 import { RealWorkspaceAnalyzer } from "../../../agent/router/workspace-analyzer"
 import { classifyArchetype, extractP1GlobMentions, extractP2PackageMentions, extractP3ScopeKeywords, extractP4ConjunctionChains, extractP5ExplicitPaths, computeCodebaseSignals, computeComposite } from "../../../agent/router/scorer"
 import { buildClassifier, LAST_RESOLVED_MODEL, LAST_CLASSIFIER_ERROR } from "../../../agent/router/build-classifier"
+import { withFaultyAnalyzer, withFaultyClassifier, getFaultMode } from "../../../agent/router/fault-inject"
 import defaultWeights from "../../../agent/router/weights.json"
 import type { RouterConfig } from "../../../agent/router/types"
 
@@ -55,8 +56,19 @@ export const DebugRouterCommand = cmd({
       const json = args.json as boolean
       const config = defaultWeights as unknown as RouterConfig
 
-      const analyzer = new RealWorkspaceAnalyzer()
-      const analysis = await analyzer.analyze(workspaceDir)
+      const faultMode = getFaultMode()
+      if (faultMode && !json) process.stderr.write(`⚠ fault-inject active: ${faultMode}\n`)
+      const analyzer = withFaultyAnalyzer(new RealWorkspaceAnalyzer())
+      let analysis
+      try {
+        analysis = await analyzer.analyze(workspaceDir)
+      } catch (e) {
+        if (!json) process.stderr.write(`⚠ analyzer failed: ${(e as Error).message}\n`)
+        // Empty fallback so downstream signal extraction + route() can still produce
+        // a (fallback) decision. route() will hit the same error path via its own
+        // analyzer call and return FALLBACK_DECISION.
+        analysis = { totalFiles: 0, packageCount: 1, packages: [], languageCount: 0, manifestPaths: [], topLevelDirs: [] }
+      }
 
       // Compute each signal individually for diagnostic output
       const p1 = extractP1GlobMentions(prompt)
@@ -68,12 +80,12 @@ export const DebugRouterCommand = cmd({
 
       // Run the full router
       const classifier = full
-        ? await AppRuntime.runPromise(
+        ? withFaultyClassifier(await AppRuntime.runPromise(
             Effect.gen(function* () {
               const providerSvc = yield* Provider.Service
               return yield* buildClassifier(providerSvc)
             }),
-          )
+          ))
         : undefined
 
       if (full && !classifier && !json) {

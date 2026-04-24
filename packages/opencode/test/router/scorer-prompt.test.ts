@@ -195,4 +195,21 @@ describe("P6 classifyArchetype", () => {
   test("short ASCII prompt with no verbs still trivial (no change)", () => {
     expect(classifyArchetype("ok thanks", mutationVerbs)).toBe("trivial")
   })
+
+  // v1.6: "translate" and "rewrite" added to mutationVerbs (Phase C finding #2
+  // follow-up). "port" was evaluated and rejected — substring collision with
+  // "export" / "import" / "transport" makes it too noisy under the current
+  // substring-match approach.
+  test("new verbs: translate + rewrite fire as mutation", () => {
+    const extendedVerbs = [...mutationVerbs, "translate", "rewrite"]
+    expect(classifyArchetype("translate the API layer to gRPC", extendedVerbs)).toBe("mutating-narrow")
+    expect(classifyArchetype("rewrite the error handling module", extendedVerbs)).toBe("mutating-narrow")
+    // with scope keyword → mutating-broad
+    expect(classifyArchetype("rewrite every module in the entire codebase", extendedVerbs)).toBe("mutating-broad")
+  })
+
+  test("new verbs: read-only verb + translate → NOT read-only", () => {
+    const extendedVerbs = [...mutationVerbs, "translate", "rewrite"]
+    expect(classifyArchetype("explain how to translate this module", extendedVerbs)).not.toBe("read-only")
+  })
 })

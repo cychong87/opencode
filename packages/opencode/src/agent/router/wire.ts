@@ -9,6 +9,7 @@
 import { Effect, Exit } from "effect"
 import { selectAgentMode, type SelectAgentResult } from "./integration"
 import { RealWorkspaceAnalyzer } from "./workspace-analyzer"
+import { withFaultyAnalyzer, withFaultyClassifier } from "./fault-inject"
 import type { LLMClassifier } from "./types"
 
 export interface AutoRouteInput {
@@ -39,8 +40,8 @@ export const autoRoute = Effect.fnUntraced(function* (input: AutoRouteInput) {
       sessionId: input.sessionID,
       turnIndex: input.turnIndex,
       userOverride: input.userOverride,
-      analyzer: new RealWorkspaceAnalyzer(),
-      classifier: input.classifier,
+      analyzer: withFaultyAnalyzer(new RealWorkspaceAnalyzer()),
+      classifier: withFaultyClassifier(input.classifier),
     }),
   ).pipe(Effect.exit)
   if (Exit.isSuccess(exit)) return exit.value as SelectAgentResult

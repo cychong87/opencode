@@ -31,7 +31,7 @@ The router has been validated end-to-end across CLI / TUI / Desktop frontends, w
 | Phase D — multi-turn inheritance (4 escapes + 1 drift) | Strongly recommended | ✓ Pass — 3 integration tests added (drift, short-follow, coord→read-only); escape 1 was already integration-covered; escape 3 stays unit-only per plan |
 | Phase H.2 — permission-denied workspace | Strongly recommended | ✓ Pass — chmod-000 subdir doesn't crash router; fallback path verified |
 | Phase H.3 — fault-inject env var | Strongly recommended | ✗ Depends on Prereq 2 (not built) |
-| Prereq 2 — fault-inject env var | Optional | ✗ Not built |
+| Prereq 2 — fault-inject env var | Optional | ✓ Built — `OPENCODE_ROUTER_DEBUG=1` + `OPENCODE_ROUTER_FAULT_INJECT=<mode>` gates `analyzer-fail` / `classifier-timeout` / `classifier-malformed` |
 | Phase E — SWE-bench replication | Recommended | ✓ E.2.a ran on sympy-16597; E.2.b substituted opencode monorepo coordinator test instead of sympy-13091 |
 | Phase F — A/B/C comparison | Nice to have | ✗ Not executed |
 
@@ -297,11 +297,11 @@ End-to-end impact, measured on the same polyglot fixture + prompt:
 
 C4 now fires for polyglot workloads, which is the intended behavior.
 
-**Finding 2 — "port" is not in the mutation-verb list.**
+**Finding 2 — "port" is not in the mutation-verb list. (PARTIALLY ADDRESSED in v1.6.)**
 
-The plan's suggested polyglot prompt was "port auth from Python to TS". Because `port` is not in `mutationVerbs` (`refactor, migrate, rename, update, add, remove, delete, replace, convert, extract, move`), P3 scope keywords are gated to 0 even when the prompt contains "across / throughout / every". The router falls back to `single` — a conservative/fail-safe direction.
+`translate` and `rewrite` have been added to `mutationVerbs`. Both are unambiguous mutation verbs with no common superstring collisions, so they expand coordinator recall on "translate this module to X" / "rewrite the handler" prompts with zero measurable downside.
 
-Adding semantically mutation-like verbs (`port, translate, rewrite`) to the list would expand coordinator recall here. Cost: small risk of false positives on read-only usages (e.g. "port forwarding"). Worth evaluating with a fresh calibration pass if recall on Python/polyglot workloads becomes important.
+**`port` was evaluated and rejected.** The current archetype classifier uses substring matching (`prompt.includes(verb)`), so `port` would false-positive on common code prompts containing `export`, `import`, `transport`, `important`, `portal`, etc. In particular it breaks the D escape-5a integration test (`"explain how the @app/auth module is structured and what each export does"` — "export" contains "port"). Adding `port` cleanly would require switching to word-boundary matching, which is a larger refactor with knock-on effects on `update → updating`, `move → remove` etc. Deferred to a future calibration iteration.
 
 ---
 
@@ -418,8 +418,9 @@ On a single-package repo, the AND-gate (`primaryScore = min(promptScore, codebas
 - ~~Phase D integration-level escape coverage~~ ✓ done
 - ~~H.2 permission-denied integration~~ ✓ done
 - ~~Add pyproject name extraction to `RealWorkspaceAnalyzer`~~ ✓ done — closes the polyglot P2 calibration gap from Phase C
-- (optional) Build Prereq 2 fault-inject env var for H.3 ops-debugging use
-- (optional) Expand mutation-verb list with semantically-mutating verbs like "port" — the second Phase C calibration finding
+- ~~Build Prereq 2 fault-inject env var~~ ✓ done
+- ~~Expand mutation-verb list with semantically-mutating verbs~~ ✓ done (translate + rewrite); `port` deferred pending substring-match refactor
+- (future) Word-boundary mutation-verb matching — would allow `port` without false positives on `export` / `import`
 
 ---
 
@@ -445,3 +446,4 @@ On a single-package repo, the AND-gate (`primaryScore = min(promptScore, codebas
 - v1.3 — 2026-04-24 — Phase G complete (G.2 added; G.3 already covered by pre-existing `telemetry.test.ts`). Now 182 router tests.
 - v1.4 — 2026-04-24 — Phase D (integration-level) + H.2 complete. 4 new tests added: drift, short-follow, coord→read-only, permission-denied. Now 186 router tests.
 - v1.5 — 2026-04-24 — Closed Phase C calibration finding #1: analyzer now extracts pyproject.toml names (PEP 621 `[project].name` + Poetry `[tool.poetry].name`). 8 new tests. Now 194 router tests.
+- v1.6 — 2026-04-24 — Partially closed Phase C calibration finding #2: added `translate` + `rewrite` to mutation verbs. `port` deferred (substring collision with `export`/`import`). Built Prereq 2 fault-inject env var with `analyzer-fail` / `classifier-timeout` / `classifier-malformed` modes, gated behind `OPENCODE_ROUTER_DEBUG=1`. 16 new tests. Now 210 router tests.

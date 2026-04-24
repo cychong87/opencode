@@ -6,6 +6,7 @@ const SHORT_FOLLOW_UP_CHARS = 80
 const DEFAULT_MUTATION_VERBS = [
   "refactor", "migrate", "rename", "update", "add", "remove",
   "delete", "replace", "convert", "extract", "move",
+  "translate", "rewrite",
 ]
 
 export interface InheritInput {

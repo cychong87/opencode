@@ -23,7 +23,8 @@
   },
   "mutationVerbs": [
     "refactor", "migrate", "rename", "update", "add", "remove",
-    "delete", "replace", "convert", "extract", "move"
+    "delete", "replace", "convert", "extract", "move",
+    "translate", "rewrite"
   ],
   "scopeKeywords": [
     "all", "every", "across", "entire", "whole",
