@@ -1315,19 +1315,17 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         })
       })
 
-      // If auto-routing fired, prepend a text part announcing the decision.
-      // NOT marked synthetic because Desktop's timeline filters synthetic parts
-      // that lack comment metadata (path/selection) — they're invisible to the user.
-      // This appears as a small prelude to the user's message in all frontends.
+      // If auto-routing fired, prepend the announce text to the FIRST user text part's
+      // content. This is the only reliable channel across all three frontends (CLI/TUI/
+      // Desktop) — the user's typed text is always rendered. Synthetic parts are filtered
+      // by Desktop's message-timeline.tsx, and adding extra non-synthetic parts didn't
+      // surface either (user-message rendering pipeline merges parts in ways we don't
+      // control from the server).
       if (routeAnnounceText) {
-        const announcePart: MessageV2.Part = {
-          id: PartID.ascending(),
-          messageID: info.id,
-          sessionID: input.sessionID,
-          type: "text",
-          text: routeAnnounceText,
+        const firstText = parts.find(p => p.type === "text") as { type: "text"; text: string } | undefined
+        if (firstText) {
+          firstText.text = `${routeAnnounceText}\n\n${firstText.text}`
         }
-        parts.unshift(announcePart)
       }
 
       yield* sessions.updateMessage(info)
