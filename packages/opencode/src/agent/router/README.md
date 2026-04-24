@@ -280,7 +280,22 @@ bun test test/router/calibration.test.ts
 bun test --timeout 30000
 ```
 
-Currently **170 tests, 0 failures**.
+Currently **180 tests, 0 failures**.
+
+---
+
+## Validation
+
+End-to-end validation was performed on 2026-04-24 across CLI / TUI / Desktop frontends and real-world SWE-bench tasks. Two-sided decision correctness confirmed:
+
+- Single-package bug (SymPy `is_finite`) → router picks **single** ✓
+- Cross-package refactor (opencode monorepo) → router picks **coordinator** ✓
+
+Latency measured well under budget: cold p95 = 10.3 ms (bound: 1500 ms), warm p95 = 1.02 ms (bound: 10 ms).
+
+Full phase-by-phase results, known issues, commits, and outstanding items: [`docs/superpowers/plans/2026-04-24-auto-router-test-results.md`](../../../../../docs/superpowers/plans/2026-04-24-auto-router-test-results.md).
+
+Test plan this was run against: [`docs/superpowers/plans/2026-04-23-auto-router-test-plan.md`](../../../../../docs/superpowers/plans/2026-04-23-auto-router-test-plan.md) (v2).
 
 ---
 
