@@ -196,4 +196,115 @@ describe("selectAgentMode", () => {
     expect(bannerMessages.length).toBeGreaterThanOrEqual(1)
     expect(bannerMessages[0]).toContain("Router degraded")
   })
+
+  // Phase D — multi-turn inheritance at integration level.
+  // inherit.ts unit tests already cover every escape branch; these tests confirm the
+  // session-store + routing plumbing actually honors them end-to-end.
+  // Staleness (escape 3) is skipped here per test plan — covered by unit tests with
+  // fake decidedAt timestamps instead of a 30-minute wait.
+
+  test("D: escape 2 (drift) — new top-level dir between turns re-routes fresh", async () => {
+    // Turn 1: coordinator decision on shared workspace
+    await selectAgentMode(makeInput(
+      "refactor all auth across @app/auth and @app/api",
+      largeMonorepo,
+      { sessionId: "drift-sess", turnIndex: 1 },
+    ))
+    const stored = sessionStore.get("drift-sess")
+    expect(stored).not.toBeNull()
+
+    // Mutate workspace — new top-level dir changes computeFingerprint output
+    const driftDir = path.join(tmpWorkspace, "_drift_test_dir")
+    await fs.mkdir(driftDir)
+    try {
+      captured.length = 0
+      await selectAgentMode(makeInput(
+        "now update the shared types",
+        largeMonorepo,
+        { sessionId: "drift-sess", turnIndex: 2 },
+      ))
+      // Must re-route — drift escape fires
+      expect(captured[0]).toContain("→ Routing:")
+      expect(captured[0]).not.toContain("inherited")
+    } finally {
+      await fs.rm(driftDir, { recursive: true }).catch(() => {})
+    }
+  })
+
+  test("D: escape 4 (short follow) — trivial short prompt on turn 2 re-routes", async () => {
+    await selectAgentMode(makeInput(
+      "refactor all auth across @app/auth and @app/api",
+      largeMonorepo,
+      { sessionId: "short-sess", turnIndex: 1 },
+    ))
+    captured.length = 0
+    // "fix typo" is short (<80 chars), no path ref, archetype "trivial" (via TRIVIAL_PATTERNS)
+    const result = await selectAgentMode(makeInput(
+      "fix typo",
+      largeMonorepo,
+      { sessionId: "short-sess", turnIndex: 2 },
+    ))
+    expect(captured[0]).toContain("→ Routing:")
+    expect(captured[0]).not.toContain("inherited")
+    // Short trivial prompt re-routes and lands on single
+    expect(result.mode).toBe("single")
+  })
+
+  test("D: escape 5a (coord → read-only) — read-only prompt after coord re-routes + de-escalates", async () => {
+    await selectAgentMode(makeInput(
+      "refactor all auth across @app/auth and @app/api",
+      largeMonorepo,
+      { sessionId: "archflip-sess", turnIndex: 1 },
+    ))
+    captured.length = 0
+    // "explain" first word → read-only archetype. Coord→read-only triggers escape 5a.
+    const result = await selectAgentMode(makeInput(
+      "explain how the @app/auth module is structured and what each export does",
+      largeMonorepo,
+      { sessionId: "archflip-sess", turnIndex: 2 },
+    ))
+    expect(captured[0]).toContain("→ Routing:")
+    expect(captured[0]).not.toContain("inherited")
+    // Read-only archetype should de-escalate to single
+    expect(result.mode).toBe("single")
+  })
+
+  // Phase H.2 — permission-denied integration.
+  // Creates a workspace with a chmod-000 subdirectory and verifies the router does not
+  // crash. If the real analyzer hits a permission error, the router's internal try/catch
+  // must absorb it and return FALLBACK_DECISION (single/low). Skipped when running as
+  // root since chmod 000 is a no-op for uid 0.
+  test("H.2: permission-denied subdir does not crash the router", async () => {
+    const getuid = (process as any).getuid
+    if (typeof getuid === "function" && getuid.call(process) === 0) return
+
+    const ws = await fs.mkdtemp(path.join(import.meta.dir, "tmp-perm-"))
+    const deniedDir = path.join(ws, "denied")
+    await fs.mkdir(deniedDir)
+    await fs.writeFile(path.join(ws, "package.json"), "{}")
+    await fs.chmod(deniedDir, 0o000)
+
+    try {
+      const { RealWorkspaceAnalyzer } = await import("@/agent/router/workspace-analyzer")
+      const result = await selectAgentMode({
+        prompt: "fix something",
+        workspaceRoot: ws,
+        cwd: ws,
+        modelId: "test",
+        sessionId: "perm-test",
+        turnIndex: 1,
+        analyzer: new RealWorkspaceAnalyzer(),
+        announceOpts: { tuiEmit },
+        suppressTelemetry: true,
+      })
+      // Didn't throw, returned a valid shape
+      expect(["single", "coordinator", "other"]).toContain(result.mode)
+      // An announce was emitted (either routed or fallback)
+      expect(captured.some(m => m.includes("→ Routing:"))).toBe(true)
+    } finally {
+      // Restore perms so tmp cleanup can recurse in
+      await fs.chmod(deniedDir, 0o755).catch(() => {})
+      await fs.rm(ws, { recursive: true }).catch(() => {})
+    }
+  })
 })
