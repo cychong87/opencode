@@ -35,7 +35,97 @@ This makes the router 100% heuristic — no additional LLM calls, at the cost of
 
 ---
 
-## How it works
+## How a decision is made
+
+The router's job is simple to state but careful in practice: **pick the cheapest mode that will actually do the work**. Single-agent is faster and cheaper; coordinator parallelizes across workers but has coordination overhead. The wrong choice either wastes tokens (coordinator on a typo fix) or drops work on the floor (single-agent on a repo-wide refactor).
+
+### Mental model
+
+Every decision is shaped by **two independent dimensions**:
+
+- **Is the task ambitious?** (prompt side) — are you asking to do one thing or many? Does the scope touch one module or many packages?
+- **Does the workspace support parallelism?** (codebase side) — is this a single-package lib or a 20-package monorepo?
+
+These are combined with an **AND-gate**: `primaryScore = min(promptScore, codebaseScore)`. Coordinator fires only when *both* are high. A complex prompt on a tiny repo → single. A trivial prompt on a massive monorepo → single. No coordinator without both an ambitious ask *and* a workspace where parallelism helps.
+
+### The six steps
+
+```
+User prompt arrives
+    │
+    ├─ (1) Override?
+    │     --agent foo, or picker set to a specific agent → use that, skip router
+    │
+    ├─ (2) Inheritance?
+    │     turn 2+, previous decision exists, no escape → reuse, skip router
+    │
+    └─ (3) Full routing
+          a. Analyze workspace — file count, packages, manifest names, languages
+          b. Extract 6 prompt signals (P1…P6)
+          c. Extract 5 codebase signals (C1…C5)
+          d. Weight + normalize → two scores (prompt, codebase)
+          e. Apply AND-gate + decision bands → mode + confidence
+          f. If "uncertain" band → LLM tiebreaker decides
+```
+
+Each step has an exit. Most turns skip full routing entirely — either because the user forced an agent (override) or because turn 2+ inherits the prior decision.
+
+### Walkthrough — three worked examples
+
+All three are run against the opencode monorepo itself (15+ packages, ~4500 files). Reproducible with `opencode debug router --json "<prompt>"`.
+
+**Example 1: a trivial prompt, even on a huge monorepo**
+
+> *"fix the typo on line 42"*
+
+| | |
+|---|---|
+| Fired signals | C1 (many files), C2 (many packages) — **no prompt signals fire** |
+| promptScore | 0.00 |
+| codebaseScore | 3.33 (opencode is objectively a big repo) |
+| **primaryScore** | **0.00** (AND-gate takes the min) |
+| Band / decision | strong-single → **`single, high confidence`** |
+
+Even though the codebase side is screaming "this is a huge monorepo", the prompt is a single-line typo fix. The AND-gate caps the primary at whichever side is lower. Coordinator never fires on trivial prompts, no matter how big the repo is.
+
+**Example 2: ambitious-sounding but not specific**
+
+> *"refactor the entire auth system"*
+
+| | |
+|---|---|
+| Fired signals | P3 (scope keyword "entire" + mutation verb "refactor"), C1, C2 |
+| promptScore | 1.21 |
+| codebaseScore | 3.33 |
+| **primaryScore** | **1.21** |
+| Band / decision | **uncertain → LLM tiebreaker fires** |
+
+The heuristic is unsure. "Entire auth system" sounds broad, but there's no named package, no glob, no explicit file path. A single-LLM call (`generateText`, 3-second timeout, small model) reads the prompt + fired signals and returns single/coordinator in one shot. If the tiebreaker fails for any reason — timeout, malformed output, rate-limited — the router falls back to `single, low confidence` rather than blocking the turn.
+
+**Example 3: unambiguous multi-package work**
+
+> *"refactor all auth handlers across @opencode-ai/app and @opencode-ai/sdk. update every caller throughout the codebase"*
+
+| | |
+|---|---|
+| Fired signals | P2 (two scoped packages), P3 (three scope keywords with mutation verbs), P4 (conjunction chain), C1, C2, C3, C4 |
+| promptScore | 5.15 |
+| codebaseScore | 8.33 |
+| **primaryScore** | **5.15** (min-gate; prompt is the narrower constraint here) |
+| Band / decision | strong-coordinator → **`coordinator, high confidence`** |
+
+No tiebreaker invoked — the heuristic is confident. The coordinator receives hints (`suggestedWorkerCount`, `suggestedPartition` aligned to the named packages) so its first action is informed by the routing signal rather than rediscovering the partition from scratch.
+
+### Why this shape of design
+
+- **Two-dimensional composite, not a single scalar.** A single score conflates "ambitious prompt" with "big repo". The AND-gate prevents both failure modes: escalating trivial prompts on large repos, and dropping ambitious prompts on small repos.
+- **Five decision bands, not a binary threshold.** Bands carry confidence. Strong-coordinator fires with no second opinion; uncertain band always consults the LLM. This matches how the cost of each mistake differs by confidence level.
+- **Heuristic first, LLM only in the uncertain band.** ~80% of turns decide on heuristics alone (<10ms warm). The LLM runs on the ~20% where heuristics are genuinely unsure — bounded by a per-session rate limit, circuit breaker, and 3-second timeout, so bad-network days can't stall every turn.
+- **Inheritance keeps multi-turn sessions stable.** Turn 1 decides; turns 2+ reuse unless something substantive changed (workspace, archetype, user said `/reroute`). Avoids the "every turn re-thinks from scratch" cost.
+
+---
+
+## How it works (compressed reference)
 
 ```
 User prompt arrives
@@ -125,6 +215,28 @@ After turn 1, subsequent turns **inherit** the previous decision unless an escap
 
 ---
 
+## Inspecting a decision (`opencode debug router`)
+
+Run the router on a prompt without actually executing an agent. Useful for tuning weights, understanding a specific routing decision, or debugging fallback behavior.
+
+```bash
+# Pretty-printed
+opencode debug router "refactor all auth across @app/auth and @app/api"
+
+# JSON output (for scripting)
+opencode debug router --json "..." | jq '.decision, .scores, .firedSignals'
+
+# Actually invoke the tiebreaker (costs 1 small-model call)
+opencode debug router --full "..."
+
+# Against a different workspace
+opencode debug router --dir /path/to/repo "..."
+```
+
+The output shows every signal value, the primary/secondary scores, fired signals, decision + confidence, and whether the tiebreaker would fire or actually ran. If the heuristic decision disagrees with your intuition, this tells you exactly which signals fired (or didn't).
+
+---
+
 ## Safety nets
 
 - **Router never throws** — any error falls back to single-agent, user's turn always proceeds
@@ -132,6 +244,23 @@ After turn 1, subsequent turns **inherit** the previous decision unless an escap
 - **Circuit breaker** — LLM tiebreaker disabled for 60s after 5 consecutive failures, with half-open recovery
 - **Rate limiter** — max 20 tiebreaker calls per session
 - **Conservative default** — every ambiguity resolves to single-agent
+
+### Fault injection (ops debugging)
+
+For verifying fallback paths in a live environment — not for production use. Gated behind two environment variables so it can never activate accidentally:
+
+```bash
+# Force the analyzer to throw on every call
+OPENCODE_ROUTER_DEBUG=1 OPENCODE_ROUTER_FAULT_INJECT=analyzer-fail opencode ...
+
+# Force the LLM tiebreaker to fail with a timeout-shaped error
+OPENCODE_ROUTER_DEBUG=1 OPENCODE_ROUTER_FAULT_INJECT=classifier-timeout opencode ...
+
+# Force the LLM tiebreaker to fail with a malformed-output error
+OPENCODE_ROUTER_DEBUG=1 OPENCODE_ROUTER_FAULT_INJECT=classifier-malformed opencode ...
+```
+
+Both env vars must be set for activation (DEBUG alone or FAULT_INJECT alone do nothing). Each mode drives the router down a specific fallback path so you can confirm the corresponding `fallbackPath` telemetry field, error budget banner, and graceful-degradation behavior all work end-to-end.
 
 ---
 
@@ -155,6 +284,7 @@ packages/opencode/src/agent/router/
 ├── telemetry.ts              — JSONL writer, daily rotation, cleanup
 ├── integration.ts            — selectAgentMode orchestrator
 ├── wire.ts                   — Effect wrapper for session/prompt.ts
+├── fault-inject.ts           — OPENCODE_ROUTER_FAULT_INJECT gate for ops debugging
 ├── version.ts                — routerDecisionVersion hash computation
 ├── weights.json              — All tunables (signals, bands, tiebreaker config)
 ├── gate.json                 — Calibration regression thresholds
