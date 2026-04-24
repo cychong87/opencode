@@ -1315,9 +1315,10 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         })
       })
 
-      // If auto-routing fired, prepend a synthetic text part announcing the decision.
-      // Visible in CLI (stderr + transcript), TUI (toast + transcript), Desktop (transcript).
-      // Marked synthetic so it's treated as a system note, not user input.
+      // If auto-routing fired, prepend a text part announcing the decision.
+      // NOT marked synthetic because Desktop's timeline filters synthetic parts
+      // that lack comment metadata (path/selection) — they're invisible to the user.
+      // This appears as a small prelude to the user's message in all frontends.
       if (routeAnnounceText) {
         const announcePart: MessageV2.Part = {
           id: PartID.ascending(),
@@ -1325,7 +1326,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           sessionID: input.sessionID,
           type: "text",
           text: routeAnnounceText,
-          synthetic: true,
         }
         parts.unshift(announcePart)
       }
