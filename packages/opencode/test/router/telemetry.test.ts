@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test"
+import { describe, test, expect, setSystemTime } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
 import { TelemetryWriter, opportunisticCleanup } from "@/agent/router/telemetry"
@@ -58,6 +58,49 @@ describe("TelemetryWriter", () => {
       const file = path.join(tmp.path, ".opencode", `router-decisions-${today}.jsonl`)
       const lines = (await fs.readFile(file, "utf-8")).trim().split("\n")
       expect(lines).toHaveLength(2)
+    } finally { await tmp.cleanup() }
+  })
+
+  // G.2 — records written on different calendar dates go to different daily files.
+  // Uses Bun's setSystemTime to deterministically advance the clock across a date boundary.
+  test("records written on different dates go to different files (G.2)", async () => {
+    const tmp = await makeTmpDir()
+    try {
+      const writer = new TelemetryWriter(tmp.path)
+      const baseRecord = {
+        ts: "",
+        sessionId: "sess1", turnIndex: 1,
+        source: "routed", promptSha: "abc", workspaceFingerprint: "def",
+        routerDecisionVersion: "v1", firedSignalNames: [],
+        taskArchetype: "trivial" as const,
+        scores: { prompt: 1, codebase: 1, primary: 1, secondary: 1 },
+        classifier: { invoked: false, failureMode: null },
+        finalDecision: { mode: "single" as const, confidence: "high" as const },
+        fallbackPath: null,
+      }
+
+      try {
+        setSystemTime(new Date("2026-04-23T10:00:00Z"))
+        await writer.write({ ...baseRecord, ts: new Date().toISOString() } as TelemetryRecord)
+
+        setSystemTime(new Date("2026-04-24T10:00:00Z"))
+        await writer.write({ ...baseRecord, turnIndex: 2, ts: new Date().toISOString() } as TelemetryRecord)
+      } finally {
+        setSystemTime()  // restore real clock even if writes threw
+      }
+
+      const dir = path.join(tmp.path, ".opencode")
+      const files = (await fs.readdir(dir)).sort()
+      expect(files).toEqual([
+        "router-decisions-2026-04-23.jsonl",
+        "router-decisions-2026-04-24.jsonl",
+      ])
+      const day1 = (await fs.readFile(path.join(dir, files[0]), "utf-8")).trim().split("\n")
+      const day2 = (await fs.readFile(path.join(dir, files[1]), "utf-8")).trim().split("\n")
+      expect(day1).toHaveLength(1)
+      expect(day2).toHaveLength(1)
+      expect(day1[0]).toContain('"turnIndex":1')
+      expect(day2[0]).toContain('"turnIndex":2')
     } finally { await tmp.cleanup() }
   })
 })

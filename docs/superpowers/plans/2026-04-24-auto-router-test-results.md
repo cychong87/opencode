@@ -26,7 +26,8 @@ The router has been validated end-to-end across CLI / TUI / Desktop frontends, w
 | Phase B — CLI / TUI / Desktop UX | Yes | ✓ Pass — all three frontends render routing announce |
 | Phase C — real-repo smoke (5 repo shapes × ~3 prompts) | Yes | ✓ Pass — 15/15 decisions match expected (100%); 2 calibration-data findings recorded |
 | Phase G.1 — telemetry privacy test | Yes | ✓ Pass — canary prompt never reaches disk; only its SHA-256 prefix does |
-| Phase G.2 / G.3 — daily rotation + 30-day cleanup | Yes | ✗ Not executed — happy-path integration test covers write path only |
+| Phase G.2 — daily rotation | Yes | ✓ Pass — two writes across a date boundary produce two separate JSONL files |
+| Phase G.3 — 30-day cleanup | Yes | ✓ Pass — `opportunisticCleanup` unlinks files older than retention, leaves recent files and non-router files alone |
 | Phase D — multi-turn inheritance (4 escapes + 1 drift) | Strongly recommended | ✗ Not executed — covered by unit tests only |
 | Phase H — permission-denied + fault inject | Strongly recommended | ✗ Not executed — covered by unit tests only |
 | Prereq 2 — fault-inject env var | Optional | ✗ Not built |
@@ -259,22 +260,38 @@ Adding semantically mutation-like verbs (`port, translate, rewrite`) to the list
 
 ---
 
-## Phase G.1 — Telemetry privacy  ·  ✓ PASSED
+## Phase G — Telemetry validation  ·  ✓ PASSED (G.1, G.2, G.3)
+
+### G.1 — Privacy canary
 
 Added: `test/router/integration.test.ts: "privacy: telemetry never writes raw prompt content (G.1)"`.
 
-**Test design:** a distinctive canary string is embedded in the prompt and the test asserts that:
+A distinctive canary string is embedded in the prompt and the test asserts that:
 1. The canary substring never appears in the written JSONL
 2. The SHA-256 prefix (first 16 hex chars) of the full prompt does appear
 
 **Why this matters:** the `TelemetryRecord` type already uses `promptSha` (not `prompt`) — so the schema forbids raw prompts by construction. This test adds a runtime check against accidental leakage via any future code path that might inadvertently include prompt content (e.g. a new field, a debug branch, a plugin extension). Cheap insurance against a high-impact privacy regression.
 
-```
-$ bun test test/router/integration.test.ts -t "G.1"
-1 pass · 0 fail · 3 expect() calls
-```
-
 Covered hash: `sha256Hex(prompt).slice(0, 16)`, computed in `integration.ts:184`.
+
+### G.2 — Daily rotation
+
+Added: `test/router/telemetry.test.ts: "records written on different dates go to different files (G.2)"`.
+
+Uses Bun's `setSystemTime` to deterministically advance the clock across a date boundary (2026-04-23 → 2026-04-24), writes one record per date, and asserts two separate `router-decisions-YYYY-MM-DD.jsonl` files exist with the expected record in each.
+
+Guards the filename-derivation path `new Date().toISOString().slice(0, 10)` in `telemetry.ts:15-16`. The `setSystemTime()` restore is in a `finally` so the clock is reset even if the writes throw.
+
+### G.3 — 30-day cleanup
+
+Covered by existing `test/router/telemetry.test.ts: "removes files older than retention period"` (pre-existing in the test file, not newly added for this validation pass). Creates a 60-day-old file via `fs.utimes`, calls `opportunisticCleanup(workspaceRoot, 30)`, asserts the old file is removed while a fresh file survives.
+
+Complementary sibling tests `"does not crash on missing directory"` and `"ignores non-router files"` (also pre-existing) cover the other two G.3-adjacent invariants: graceful no-op when `.opencode/` doesn't exist, and selectivity so the cleanup doesn't delete unrelated files in `.opencode/`.
+
+```
+$ bun test test/router/telemetry.test.ts
+6 pass · 0 fail · 11 expect() calls
+```
 
 ---
 
@@ -294,16 +311,7 @@ Plan's 5-turn TUI scenario exercising:
 
 **Risk of skipping:** low. The `inherit.ts` unit tests exercise every branch, including `/reroute`, drift, staleness, short-follow, and archetype change.
 
-### Phase G.2 / G.3 — Telemetry rotation + cleanup
-
-- G.2 daily rotation — different dates write to different files
-- G.3 opportunistic cleanup — files older than 30 days are unlinked
-
-(G.1 privacy is now covered — see below.)
-
-**Unit-test coverage today:** the happy-path integration test (`integration.test.ts: telemetry record is written when suppressTelemetry is false`) confirms records get written. G.2/G.3 would require mocking `Date.now()` and `fs.stat().mtimeMs`, respectively — each ~10 min to add.
-
-**Risk of skipping:** moderate for G.3 (files could accumulate indefinitely if the cleanup regresses), low for G.2 (date boundary is deterministic, failure mode is "everything lands in one file" which is cosmetic).
+(All of Phase G is now covered — G.1, G.2, G.3 — see "Phase G — Telemetry validation" section below.)
 
 ### Phase H — Safety nets
 
@@ -398,3 +406,4 @@ On a single-package repo, the AND-gate (`primaryScore = min(promptScore, codebas
 - v1 — 2026-04-24 — initial results after A/B/E pass.
 - v1.1 — 2026-04-24 — added Phase G.1 (privacy canary) — now 181 router tests.
 - v1.2 — 2026-04-24 — Phase C real-repo smoke complete (15/15 match); 2 calibration findings recorded (pyproject names not extracted; "port" not in mutation-verb list).
+- v1.3 — 2026-04-24 — Phase G complete (G.2 added; G.3 already covered by pre-existing `telemetry.test.ts`). Now 182 router tests.
