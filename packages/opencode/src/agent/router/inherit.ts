@@ -1,13 +1,9 @@
 import type { RoutingDecision } from "./types"
 import { classifyArchetype } from "./scorer"
+import defaultWeights from "./weights.json"
 
 const INHERITANCE_MAX_AGE_MS = 30 * 60 * 1000
 const SHORT_FOLLOW_UP_CHARS = 80
-const DEFAULT_MUTATION_VERBS = [
-  "refactor", "migrate", "rename", "update", "add", "remove",
-  "delete", "replace", "convert", "extract", "move",
-  "translate", "rewrite",
-]
 
 export interface InheritInput {
   prompt: string
@@ -46,7 +42,7 @@ export function shouldInherit(input: InheritInput): InheritResult {
   }
 
   // Compute archetype once (reused by escape 4 and 5)
-  const archetype = classifyArchetype(input.prompt, DEFAULT_MUTATION_VERBS)
+  const archetype = classifyArchetype(input.prompt, defaultWeights.mutationVerbs)
 
   // Priority 4: short follow-up (trivial/conversational only — read-only queries and mutating
   // prompts are substantive even when short)

@@ -31,7 +31,7 @@ const smallWorkspace: WorkspaceAnalysis = {
 }
 
 const captured: string[] = []
-const tuiEmit = (msg: string) => { captured.push(msg) }
+const tuiEmit = (msg: string, _variant: "info" | "warning") => { captured.push(msg) }
 
 function makeInput(prompt: string, analysis: WorkspaceAnalysis, overrides: Record<string, any> = {}) {
   return {
@@ -227,7 +227,10 @@ describe("selectAgentMode", () => {
       expect(captured[0]).toContain("→ Routing:")
       expect(captured[0]).not.toContain("inherited")
     } finally {
-      await fs.rm(driftDir, { recursive: true }).catch(() => {})
+      // force:true prevents an error-swallowing .catch silently leaving _drift_test_dir
+      // behind on cleanup failure, which would make subsequent tests see a mutated
+      // fingerprint of the shared tmpWorkspace.
+      await fs.rm(driftDir, { recursive: true, force: true })
     }
   })
 

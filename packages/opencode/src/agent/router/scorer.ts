@@ -65,7 +65,16 @@ export function packageMatches(text: string, pkg: string): boolean {
     const quoted = new RegExp(`["']${escaped}["']`)
     return backticked.test(text) || quoted.test(text)
   }
-  return new RegExp(`\\b${escaped}\\b`).test(text)
+  // Bare non-scoped name (e.g. "opencode", "lodash"). Plain `\b...\b` is too
+  // permissive — `\bopencode\b` fires *inside* `@opencode-ai/app` because `@`
+  // and `-` are non-word chars and thus count as word boundaries. That leads
+  // to P2 over-firing when the workspace has a bare-name package that is a
+  // substring of sibling scoped names.
+  //
+  // Widen the boundary class to include `@`, `-`, and `/` so scoped-name
+  // internals and slash-path contexts don't trigger a match. Keeps legitimate
+  // bare matches like "fix the opencode setup" working.
+  return new RegExp(`(?<![a-zA-Z0-9_@/\\-])${escaped}(?![a-zA-Z0-9_@/\\-])`).test(text)
 }
 
 export function extractP2PackageMentions(prompt: string, packageNames: string[]): number {

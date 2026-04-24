@@ -60,6 +60,12 @@ export const buildClassifier = Effect.fnUntraced(function* (provider: Provider.I
       } catch {
         smallModelInfo = undefined
       }
+    } else if (explicitRef && typeof explicitRef === "string" && explicitRef.trim().length > 0) {
+      // Non-null, non-empty, but malformed (missing "/") — silent fallback to the default
+      // model would leave the user believing they had pinned a cheap model for tiebreaker
+      // calls when they actually haven't. Surface the misconfiguration via the diagnostic
+      // channel so `opencode debug router --full` prints it.
+      LAST_CLASSIFIER_ERROR = `tiebreaker.modelRef "${explicitRef}" must be "providerID/modelID" — falling back to default model`
     }
 
     // Default: use the user's configured model — simplest UX, always works

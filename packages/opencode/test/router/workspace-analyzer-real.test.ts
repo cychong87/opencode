@@ -137,4 +137,34 @@ name = "with-comment"  # inline comment
     expect(readPyprojectName("")).toBeUndefined()
     expect(readPyprojectName("[project]\nversion = \"0.0.0\"\n")).toBeUndefined()
   })
+
+  test("handles subtable headers before the [project] section", () => {
+    // Valid TOML ordering — subtable appears before its parent section header.
+    // Parser must not get stuck in the subtable and skip the real name.
+    const toml = `[project.urls]
+homepage = "https://example.com"
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project]
+name = "my-pkg"
+`
+    expect(readPyprojectName(toml)).toBe("my-pkg")
+  })
+
+  test("subtable after [project] does not clobber the captured name", () => {
+    const toml = `[project]
+name = "my-pkg"
+
+[project.urls]
+homepage = "https://example.com"
+`
+    expect(readPyprojectName(toml)).toBe("my-pkg")
+  })
+
+  test("handles CRLF line endings", () => {
+    const toml = "[project]\r\nname = \"crlf-pkg\"\r\n"
+    expect(readPyprojectName(toml)).toBe("crlf-pkg")
+  })
 })

@@ -76,6 +76,21 @@ describe("P2_package_mentions", () => {
     expect(extractP2PackageMentions("@app/auth", ["@app/auth"])).toBe(1)
     expect(extractP2PackageMentions("starts with @app/auth", ["@app/auth"])).toBe(1)
   })
+
+  // Regression: bare non-scoped name must NOT match inside a sibling scoped name.
+  // Was firing P2=2 for a single-package prompt on the opencode repo because
+  // "opencode" (from packages/opencode/package.json) matched inside the user's
+  // "@opencode-ai/app" reference, which inflated C4 and pushed the decision
+  // toward coordinator.
+  test("bare name does not match inside scoped sibling (@opencode-ai/app vs opencode)", () => {
+    const pkgs = ["@opencode-ai/app", "opencode"]
+    // User wrote the scoped name — only that one should match
+    expect(extractP2PackageMentions("update @opencode-ai/app", pkgs)).toBe(1)
+    // Bare name still matches when genuinely mentioned as a standalone word
+    expect(extractP2PackageMentions("fix the opencode setup", pkgs)).toBe(1)
+    // Slash-path contexts don't false-match either
+    expect(extractP2PackageMentions("read opencode/docs/index.md", pkgs)).toBe(0)
+  })
 })
 
 const MUTATION_VERBS = [

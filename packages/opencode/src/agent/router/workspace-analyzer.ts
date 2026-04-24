@@ -130,7 +130,10 @@ async function readManifestName(manifestPath: string): Promise<string | undefine
 // PEP 621 `[project].name` and Poetry's `[tool.poetry].name` — the only two
 // forms that show up in practice. Prefers [project] when both are present.
 // Not a full TOML parser: multi-line strings and escapes in `name` would not
-// be handled, but those are vanishingly rare for project names.
+// be handled, but those are vanishingly rare for project names. Subtable
+// headers (`[project.urls]`, `[project.optional-dependencies]`) land in
+// non-target sections and are correctly ignored regardless of where they
+// appear relative to the `[project]` section header.
 export function readPyprojectName(content: string): string | undefined {
   const targets = new Set(["project", "tool.poetry"])
   let currentSection = ""
