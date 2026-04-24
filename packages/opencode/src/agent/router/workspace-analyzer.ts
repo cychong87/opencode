@@ -1,6 +1,6 @@
 import path from "path"
 import fs from "fs/promises"
-import { Glob } from "bun"
+import { Glob } from "@opencode-ai/shared/util/glob"
 import type { WorkspaceAnalyzer, WorkspaceAnalysis } from "./types"
 
 export class FakeWorkspaceAnalyzer implements WorkspaceAnalyzer {
@@ -42,9 +42,8 @@ export class RealWorkspaceAnalyzer implements WorkspaceAnalyzer {
     const manifestSet = new Set<string>()
     for (const name of MANIFEST_NAMES) {
       for (const pattern of [name, `*/${name}`, `*/*/${name}`]) {
-        const glob = new Glob(pattern)
-        for await (const match of glob.scan({ cwd: workspaceRoot, onlyFiles: true })) {
-          // Skip if any path segment is an excluded dir
+        const matches = await Glob.scan(pattern, { cwd: workspaceRoot, include: "file" })
+        for (const match of matches) {
           if (!isExcludedPath(match)) {
             manifestSet.add(match)
           }
@@ -126,12 +125,10 @@ function isExcludedPath(filePath: string): boolean {
 }
 
 async function countFiles(workspaceRoot: string): Promise<number> {
+  const files = await Glob.scan("**/*", { cwd: workspaceRoot, include: "file" })
   let count = 0
-  const glob = new Glob("**/*")
-  for await (const file of glob.scan({ cwd: workspaceRoot, onlyFiles: true })) {
-    if (!isExcludedPath(file)) {
-      count++
-    }
+  for (const file of files) {
+    if (!isExcludedPath(file)) count++
   }
   return count
 }

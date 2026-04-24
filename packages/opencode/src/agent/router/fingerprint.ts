@@ -1,7 +1,7 @@
 import path from "path"
 import fs from "fs/promises"
 import { createHash } from "crypto"
-import { Glob } from "bun"
+import { Glob } from "@opencode-ai/shared/util/glob"
 
 const MANIFEST_PATTERNS = [
   "package.json", "*/package.json",
@@ -17,8 +17,8 @@ const EXCLUDED_SEGMENTS = new Set(["node_modules", ".git", "dist", "build"])
 export async function computeFingerprint(workspaceRoot: string): Promise<string> {
   const manifests: string[] = []
   for (const pattern of MANIFEST_PATTERNS) {
-    const glob = new Glob(pattern)
-    for await (const file of glob.scan({ cwd: workspaceRoot, onlyFiles: true })) {
+    const matches = await Glob.scan(pattern, { cwd: workspaceRoot, include: "file" })
+    for (const file of matches) {
       // Exclude manifests inside node_modules, .git, etc.
       if (!file.split("/").some(seg => EXCLUDED_SEGMENTS.has(seg))) {
         manifests.push(file)
