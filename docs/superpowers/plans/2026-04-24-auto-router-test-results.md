@@ -25,7 +25,8 @@ The router has been validated end-to-end across CLI / TUI / Desktop frontends, w
 | Phase A — regression + latency | Yes | ✓ Pass — 180 router tests, cold p95 = 10.3 ms, warm p95 = 1.02 ms |
 | Phase B — CLI / TUI / Desktop UX | Yes | ✓ Pass — all three frontends render routing announce |
 | Phase C — real-repo smoke (5 repos × 5 prompts) | Yes | ✗ Not executed — partial coverage via Phase E real-repo runs |
-| Phase G — telemetry tests (G.1 privacy, G.2 rotation, G.3 cleanup) | Yes | ✗ Not executed — existing integration test covers happy path only |
+| Phase G.1 — telemetry privacy test | Yes | ✓ Pass — canary prompt never reaches disk; only its SHA-256 prefix does |
+| Phase G.2 / G.3 — daily rotation + 30-day cleanup | Yes | ✗ Not executed — happy-path integration test covers write path only |
 | Phase D — multi-turn inheritance (4 escapes + 1 drift) | Strongly recommended | ✗ Not executed — covered by unit tests only |
 | Phase H — permission-denied + fault inject | Strongly recommended | ✗ Not executed — covered by unit tests only |
 | Prereq 2 — fault-inject env var | Optional | ✗ Not built |
@@ -207,6 +208,25 @@ The coordinator delegated a cross-package search to an `explore` subagent via th
 
 ---
 
+## Phase G.1 — Telemetry privacy  ·  ✓ PASSED
+
+Added: `test/router/integration.test.ts: "privacy: telemetry never writes raw prompt content (G.1)"`.
+
+**Test design:** a distinctive canary string is embedded in the prompt and the test asserts that:
+1. The canary substring never appears in the written JSONL
+2. The SHA-256 prefix (first 16 hex chars) of the full prompt does appear
+
+**Why this matters:** the `TelemetryRecord` type already uses `promptSha` (not `prompt`) — so the schema forbids raw prompts by construction. This test adds a runtime check against accidental leakage via any future code path that might inadvertently include prompt content (e.g. a new field, a debug branch, a plugin extension). Cheap insurance against a high-impact privacy regression.
+
+```
+$ bun test test/router/integration.test.ts -t "G.1"
+1 pass · 0 fail · 3 expect() calls
+```
+
+Covered hash: `sha256Hex(prompt).slice(0, 16)`, computed in `integration.ts:184`.
+
+---
+
 ## Not yet executed
 
 These plan phases would strengthen confidence but do not cover functionality that is unvalidated by other means. Where there is existing unit-test coverage, it is noted.
@@ -231,15 +251,16 @@ Plan's 5-turn TUI scenario exercising:
 
 **Risk of skipping:** low. The `inherit.ts` unit tests exercise every branch, including `/reroute`, drift, staleness, short-follow, and archetype change.
 
-### Phase G — Telemetry validation (G.1, G.2, G.3)
+### Phase G.2 / G.3 — Telemetry rotation + cleanup
 
-- G.1 privacy — canary string must not appear in telemetry JSONL (raw prompt must be hashed)
 - G.2 daily rotation — different dates write to different files
 - G.3 opportunistic cleanup — files older than 30 days are unlinked
 
-**Unit-test coverage today:** the happy-path integration test (`integration.test.ts: telemetry record is written when suppressTelemetry is false`) confirms records get written. The three specific invariants above are not individually asserted.
+(G.1 privacy is now covered — see below.)
 
-**Risk of skipping:** G.1 (privacy) is the most important — a regression there would leak prompt contents. Recommended as the top pending test to add before a public beta.
+**Unit-test coverage today:** the happy-path integration test (`integration.test.ts: telemetry record is written when suppressTelemetry is false`) confirms records get written. G.2/G.3 would require mocking `Date.now()` and `fs.stat().mtimeMs`, respectively — each ~10 min to add.
+
+**Risk of skipping:** moderate for G.3 (files could accumulate indefinitely if the cleanup regresses), low for G.2 (date boundary is deterministic, failure mode is "everything lands in one file" which is cosmetic).
 
 ### Phase H — Safety nets
 
@@ -309,7 +330,7 @@ On a single-package repo, the AND-gate (`primaryScore = min(promptScore, codebas
 - Phase H permission-denied integration — try/catch wrapper + unit tests provide coverage at the signal level
 
 **Recommended before public release:**
-- G.1 privacy test (hash canary) — highest-value pending test
+- ~~G.1 privacy test~~ ✓ done
 - At least a partial Phase C pass for false-positive rate data
 
 ---
@@ -330,4 +351,5 @@ On a single-package repo, the AND-gate (`primaryScore = min(promptScore, codebas
 
 ## Revision history
 
-- v1 (this doc) — 2026-04-24 — initial results after A/B/E pass.
+- v1 — 2026-04-24 — initial results after A/B/E pass.
+- v1.1 — 2026-04-24 — added Phase G.1 (privacy canary) — now 181 router tests.

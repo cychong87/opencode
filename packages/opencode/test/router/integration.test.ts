@@ -3,6 +3,7 @@ import fs from "fs/promises"
 import path from "path"
 import { selectAgentMode, sessionStore, errorBudget } from "@/agent/router/integration"
 import { FakeWorkspaceAnalyzer } from "@/agent/router/workspace-analyzer"
+import { sha256Hex } from "@/agent/router/version"
 import type { WorkspaceAnalysis } from "@/agent/router/types"
 
 // Real temp directory with a manifest so computeFingerprint returns a stable hash
@@ -147,6 +148,32 @@ describe("selectAgentMode", () => {
     expect(content).toContain('"source":"routed"')
     expect(content).toContain('"routerDecisionVersion":')
     expect(content).toContain('"promptSha":')
+  })
+
+  // G.1 — Privacy: a recognizable canary in the prompt must never reach disk verbatim,
+  // while its SHA-256 prefix must. Protects against accidental regressions where a
+  // future code path adds a field that includes the raw prompt content.
+  test("privacy: telemetry never writes raw prompt content (G.1)", async () => {
+    const canary = "SECRET_CANARY_STRING_xyz987_must_not_appear_in_telemetry"
+    const prompt = `please fix the typo ${canary} on line 5`
+
+    await selectAgentMode(makeInput(prompt, smallWorkspace, {
+      suppressTelemetry: false,
+      sessionId: "privacy-test",
+    }))
+
+    const today = new Date().toISOString().slice(0, 10)
+    const file = path.join(tmpWorkspace, ".opencode", `router-decisions-${today}.jsonl`)
+    const content = await fs.readFile(file, "utf-8")
+
+    // The canary must not appear anywhere — neither the full string nor a distinctive substring
+    expect(content).not.toContain(canary)
+    expect(content).not.toContain("SECRET_CANARY_STRING")
+
+    // The hash prefix (first 16 hex chars) must appear — confirms the privacy-preserving
+    // identifier is being written as designed
+    const expectedSha = sha256Hex(prompt).slice(0, 16)
+    expect(content).toContain(expectedSha)
   })
 
   test("error budget banner fires after multiple fallbacks", async () => {
