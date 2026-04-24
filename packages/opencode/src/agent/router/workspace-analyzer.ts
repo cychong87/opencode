@@ -53,10 +53,27 @@ export class RealWorkspaceAnalyzer implements WorkspaceAnalyzer {
     }
     const manifestPaths = [...manifestSet].sort()
 
-    // Derive packages from depth-1+ manifests (root manifest excluded — no "/" in path)
-    const packages = manifestPaths
-      .filter(p => p.includes("/"))
-      .map(p => path.dirname(p))
+    // Derive package identifiers from depth-1+ manifests. Users mention their packages
+    // both by scoped npm name (@org/auth) AND by directory path (packages/auth) — so we
+    // include BOTH when available. Signal matching deduplicates, so this just improves recall.
+    const packages: string[] = []
+    const seenPackageNames = new Set<string>()
+    for (const mp of manifestPaths) {
+      if (!mp.includes("/")) continue // skip root manifest
+      const dirPath = path.dirname(mp)
+      if (!seenPackageNames.has(dirPath)) {
+        seenPackageNames.add(dirPath)
+        packages.push(dirPath)
+      }
+      // Try to extract the scoped npm name from package.json
+      if (mp.endsWith("package.json")) {
+        const pkgName = await readManifestName(path.join(workspaceRoot, mp))
+        if (pkgName && !seenPackageNames.has(pkgName)) {
+          seenPackageNames.add(pkgName)
+          packages.push(pkgName)
+        }
+      }
+    }
 
     // Count distinct languages from manifest types
     const langs = new Set<string>()
@@ -73,9 +90,14 @@ export class RealWorkspaceAnalyzer implements WorkspaceAnalyzer {
       .map(e => e.name)
       .sort()
 
+    // packageCount counts distinct depth-1+ manifests (one per physical package).
+    // Use the manifestSet depth, not packages.length — packages[] may contain both
+    // directory paths and npm names for the same package.
+    const physicalPackageCount = manifestPaths.filter(p => p.includes("/")).length
+
     const result: WorkspaceAnalysis = {
       totalFiles,
-      packageCount: Math.max(1, packages.length),
+      packageCount: Math.max(1, physicalPackageCount),
       packages,
       languageCount: langs.size,
       manifestPaths,
@@ -84,6 +106,19 @@ export class RealWorkspaceAnalyzer implements WorkspaceAnalyzer {
     this.cache = result
     return result
   }
+}
+
+async function readManifestName(manifestPath: string): Promise<string | undefined> {
+  try {
+    const content = await fs.readFile(manifestPath, "utf-8")
+    const parsed = JSON.parse(content) as { name?: unknown }
+    if (typeof parsed.name === "string" && parsed.name.length > 0) {
+      return parsed.name
+    }
+  } catch {
+    // Malformed JSON, missing file, etc. — non-fatal
+  }
+  return undefined
 }
 
 function isExcludedPath(filePath: string): boolean {

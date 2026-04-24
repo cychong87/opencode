@@ -54,4 +54,19 @@ describe("RealWorkspaceAnalyzer", () => {
     // node_modules should NOT appear in topLevelDirs
     expect(result.topLevelDirs).not.toContain("node_modules")
   })
+
+  test("monorepo-small exposes BOTH directory paths AND npm names from package.json", async () => {
+    const analyzer = new RealWorkspaceAnalyzer()
+    const result = await analyzer.analyze(path.join(FIXTURES, "monorepo-small"))
+    // Directory paths (for users who refer to packages/auth)
+    expect(result.packages).toContain("packages/auth")
+    expect(result.packages).toContain("packages/api")
+    expect(result.packages).toContain("packages/shared")
+    // Scoped npm names from package.json (for users who refer to @app/auth)
+    expect(result.packages).toContain("@app/auth")
+    expect(result.packages).toContain("@app/api")
+    expect(result.packages).toContain("@app/shared")
+    // packageCount remains 3 (physical packages), not 6 (the packages list has both aliases)
+    expect(result.packageCount).toBe(3)
+  })
 })
