@@ -2,6 +2,17 @@ import type { HintBlock } from "./types"
 
 const PLACEHOLDER = "{{ROUTER_HINTS}}"
 
+// Package paths and signal names end up inlined into the coordinator system prompt.
+// They originate from package.json `name` fields and scorer constants, both of which
+// can in principle contain newlines, markdown headers, or prompt-injection-shaped
+// content from an untrusted workspace. Scrub control chars and bound length before
+// rendering so a hostile package.json can't steer the coordinator.
+const MAX_HINT_TOKEN_LENGTH = 120
+
+function sanitizeHintToken(s: string): string {
+  return s.replace(/[\r\n\t]+/g, " ").trim().slice(0, MAX_HINT_TOKEN_LENGTH)
+}
+
 export function composeCoordinatorPrompt(base: string, hints: HintBlock | null): string {
   if (!base.includes(PLACEHOLDER)) {
     throw new Error("coordinator.txt is missing {{ROUTER_HINTS}} placeholder")
@@ -26,12 +37,19 @@ export function renderHintBlock(hints: HintBlock): string {
   if (hints.suggestedPartition && hints.suggestedPartition.length > 0) {
     lines.push("- Suggested partition:")
     for (let i = 0; i < hints.suggestedPartition.length; i++) {
-      lines.push(`  - Worker ${i + 1}: ${hints.suggestedPartition[i].join(", ")}`)
+      const sanitized = hints.suggestedPartition[i]
+        .map(sanitizeHintToken)
+        .filter(s => s.length > 0)
+      if (sanitized.length === 0) continue
+      lines.push(`  - Worker ${i + 1}: ${sanitized.join(", ")}`)
     }
   }
 
   if (hints.triggerReasons.length > 0) {
-    lines.push(`- Signals that triggered coordinator: ${hints.triggerReasons.join(", ")}`)
+    const safeReasons = hints.triggerReasons.map(sanitizeHintToken).filter(s => s.length > 0)
+    if (safeReasons.length > 0) {
+      lines.push(`- Signals that triggered coordinator: ${safeReasons.join(", ")}`)
+    }
   }
 
   lines.push(

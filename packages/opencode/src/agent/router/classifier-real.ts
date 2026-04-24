@@ -60,9 +60,20 @@ export class RealClassifier implements LLMClassifier {
   }
 }
 
+// Input prompts can be arbitrarily long (pasted logs, file contents, multi-paragraph
+// briefs). For routing purposes, the first ~2k chars are more than enough to judge
+// "is this ambitious?" — the signal doesn't improve with 50k chars. Truncating bounds
+// tiebreaker cost and prevents context overflow on small-tier models that may have a
+// modest context window.
+const TIEBREAKER_PROMPT_TRUNCATE = 2000
+
 function buildUserMessage(input: ClassifierInput): string {
+  const truncated =
+    input.prompt.length <= TIEBREAKER_PROMPT_TRUNCATE
+      ? input.prompt
+      : input.prompt.slice(0, TIEBREAKER_PROMPT_TRUNCATE) + "… [truncated]"
   return [
-    `Task: "${input.prompt}"`,
+    `Task: "${truncated}"`,
     `Fired signals: ${input.firedSignalNames.join(", ") || "(none)"}`,
     `Task archetype: ${input.heuristicSummary.taskArchetype}`,
     `Workspace: ${input.heuristicSummary.fileCount} files, ${input.heuristicSummary.packageCount} packages`,

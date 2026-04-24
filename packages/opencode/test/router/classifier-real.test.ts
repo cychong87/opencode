@@ -81,4 +81,36 @@ describe("RealClassifier", () => {
     expect(result.confidence).toBe("high")
     expect(result.reason).toBe("multi-package refactor")
   })
+
+  // Long input prompts (pasted logs, multi-page briefs) must not blow past small-model
+  // context limits. RealClassifier truncates to ~2000 chars before embedding.
+  test("truncates very long prompts in the user message sent to the model", async () => {
+    let sentPrompt: string | undefined
+    const captureModel = {
+      specificationVersion: "v2",
+      provider: "test",
+      modelId: "test",
+      doGenerate: async (opts: any) => {
+        // AI SDK passes messages via opts.prompt — capture the user text for assertion
+        const userMsg = opts.prompt?.find?.((m: any) => m.role === "user")
+        sentPrompt = userMsg?.content?.[0]?.text ?? JSON.stringify(opts)
+        return {
+          content: [{ type: "text" as const, text: '{"decision":"single","confidence":"low","reason":"x"}' }],
+          finishReason: "stop" as const,
+          usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+          warnings: [],
+        }
+      },
+      doStream: () => new Promise(() => {}),
+      supportedUrls: {},
+    } as any
+    const c = new RealClassifier({ model: captureModel })
+    const huge = "x".repeat(10_000)
+    await c.classify({ ...baseInput, prompt: huge })
+    expect(sentPrompt).toBeDefined()
+    // Must not contain the full 10k of x's
+    expect(sentPrompt!.length).toBeLessThan(huge.length)
+    // Must contain the truncation marker
+    expect(sentPrompt!).toContain("[truncated]")
+  })
 })

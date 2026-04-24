@@ -527,7 +527,7 @@ bun test test/router/calibration.test.ts
 bun test --timeout 30000
 ```
 
-Currently **214 tests, 0 failures**.
+Currently **218 tests, 0 failures**.
 
 Test-file map:
 
