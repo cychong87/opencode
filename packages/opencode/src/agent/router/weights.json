@@ -32,8 +32,8 @@
   "tiebreaker": {
     "enabled": true,
     "modelRef": null,
-    "timeoutMs": 3000,
-    "maxTokens": 150,
+    "timeoutMs": 10000,
+    "maxTokens": 500,
     "maxCallsPerSession": 20,
     "circuitBreaker": {
       "consecutiveFailuresToTrip": 5,

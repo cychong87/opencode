@@ -82,11 +82,32 @@ describe("GuardedClassifier", () => {
     // First post-cooldown call attempts (not circuit_open), fails, counter starts fresh
     const r1 = await guarded.classify(baseInput)
     expect(r1).toBeNull()
-    expect(guarded.lastFallbackReason).toBe("timeout")  // NOT circuit_open
+    expect(guarded.lastFallbackReason).toBe("error")  // generic error (not circuit_open)
 
     // Only 1 failure after reset — circuit should NOT be open yet
     const r2 = await guarded.classify(baseInput)
     expect(r2).toBeNull()
-    expect(guarded.lastFallbackReason).toBe("timeout")  // still attempting
+    expect(guarded.lastFallbackReason).toBe("error")  // still attempting
+  })
+
+  test("error classification: timeout/auth/network/malformed distinguished", async () => {
+    const makeFailer = (msg: string) => {
+      const m: any = new MockClassifier({ decision: "coordinator", confidence: "high", reason: "" })
+      m.classify = async () => { throw new Error(msg) }
+      return m
+    }
+    const cfg = { maxCallsPerSession: 100, consecutiveFailuresToTrip: 99, cooldownMs: 1000 }
+    for (const [errMsg, expected] of [
+      ["classifier timeout", "timeout"],
+      ["401 unauthorized", "auth_error"],
+      ["Invalid API key", "auth_error"],
+      ["network error: fetch failed", "network_error"],
+      ["malformed JSON output", "malformed"],
+      ["something unexpected", "error"],
+    ] as const) {
+      const g = new GuardedClassifier(makeFailer(errMsg), cfg)
+      await g.classify(baseInput)
+      expect(g.lastFallbackReason).toBe(expected)
+    }
   })
 })

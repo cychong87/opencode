@@ -13,6 +13,10 @@ import { GuardedClassifier } from "./classifier"
 import weights from "./weights.json"
 import type { LLMClassifier, ClassifierInput, ClassifierOutput } from "./types"
 
+// Exposed for diagnostics (debug router command prints this)
+export let LAST_RESOLVED_MODEL: { providerID: string; modelID: string } | null = null
+export let LAST_CLASSIFIER_ERROR: string | null = null
+
 // Adapter: GuardedClassifier returns null on fallback; LLMClassifier must never
 // return null. Adapter throws so the router's try/catch falls through to single.
 class GuardedAdapter implements LLMClassifier {
@@ -20,7 +24,10 @@ class GuardedAdapter implements LLMClassifier {
   async classify(input: ClassifierInput): Promise<ClassifierOutput> {
     const result = await this.guarded.classify(input)
     if (result === null) {
-      throw new Error(`classifier fallback: ${this.guarded.lastFallbackReason ?? "unknown"}`)
+      const reason = this.guarded.lastFallbackReason ?? "unknown"
+      const innerMsg = this.guarded.lastErrorMessage
+      LAST_CLASSIFIER_ERROR = innerMsg ? `${reason}: ${innerMsg}` : `fallback: ${reason}`
+      throw new Error(`classifier ${reason}${innerMsg ? `: ${innerMsg}` : ""}`)
     }
     return result
   }
@@ -35,9 +42,38 @@ class GuardedAdapter implements LLMClassifier {
 export const buildClassifier = Effect.fnUntraced(function* (provider: Provider.Interface) {
   if (!weights.tiebreaker.enabled) return undefined
   const exit = yield* Effect.gen(function* () {
-    const defaultModel = yield* provider.defaultModel()
-    const smallModelInfo = yield* provider.getSmallModel(defaultModel.providerID)
+    let smallModelInfo: any
+
+    // Model resolution priority:
+    //   1. router/weights.json → tiebreaker.modelRef (explicit override, e.g. "anthropic/claude-haiku-4.5")
+    //      For users who want to save cost by routing tiebreaker calls to a cheap model.
+    //   2. The user's default model — the simplest, always-works path.
+    //      Tradeoff: tiebreaker calls hit the main model (~$0.01-0.05 per uncertain turn).
+    //      Benefit: zero setup, always authenticated, same latency profile as main flow.
+
+    const explicitRef = weights.tiebreaker.modelRef as string | null
+    if (explicitRef && typeof explicitRef === "string" && explicitRef.includes("/")) {
+      const [providerID, ...modelParts] = explicitRef.split("/")
+      const modelID = modelParts.join("/")
+      try {
+        smallModelInfo = yield* provider.getModel(providerID as any, modelID as any)
+      } catch {
+        smallModelInfo = undefined
+      }
+    }
+
+    // Default: use the user's configured model — simplest UX, always works
+    if (!smallModelInfo) {
+      const defaultModel = yield* provider.defaultModel()
+      try {
+        smallModelInfo = yield* provider.getModel(defaultModel.providerID, defaultModel.modelID)
+      } catch {
+        smallModelInfo = undefined
+      }
+    }
+
     if (!smallModelInfo) return undefined
+    LAST_RESOLVED_MODEL = { providerID: smallModelInfo.providerID, modelID: smallModelInfo.id }
     const language = yield* provider.getLanguage(smallModelInfo)
     const raw = new RealClassifier({ model: language, maxTokens: weights.tiebreaker.maxTokens })
     const guarded = new GuardedClassifier(raw, {

@@ -21,6 +21,7 @@ export class GuardedClassifier {
   private consecutiveFailures = 0
   private circuitOpenUntil = 0
   public lastFallbackReason: string | null = null
+  public lastErrorMessage: string | null = null
 
   constructor(inner: LLMClassifier, config: GuardedConfig) {
     this.inner = inner
@@ -52,13 +53,22 @@ export class GuardedClassifier {
     try {
       const result = await this.inner.classify(input)
       this.consecutiveFailures = 0
+      this.lastErrorMessage = null
       return result
-    } catch {
+    } catch (err) {
       this.consecutiveFailures++
       if (this.consecutiveFailures >= this.config.consecutiveFailuresToTrip) {
         this.circuitOpenUntil = Date.now() + this.config.cooldownMs
       }
-      this.lastFallbackReason = "timeout"
+      this.lastErrorMessage = err instanceof Error ? err.message : String(err)
+      // Classify the error type so telemetry/debug output is more useful than
+      // "timeout" for every non-timeout failure (auth, network, malformed, etc.)
+      const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase()
+      if (msg.includes("timeout")) this.lastFallbackReason = "timeout"
+      else if (msg.includes("unauthor") || msg.includes("401") || msg.includes("403") || msg.includes("api key")) this.lastFallbackReason = "auth_error"
+      else if (msg.includes("network") || msg.includes("fetch") || msg.includes("econn")) this.lastFallbackReason = "network_error"
+      else if (msg.includes("malformed") || msg.includes("parse")) this.lastFallbackReason = "malformed"
+      else this.lastFallbackReason = "error"
       return null
     }
   }

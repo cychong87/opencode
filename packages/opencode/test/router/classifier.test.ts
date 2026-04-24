@@ -61,4 +61,23 @@ describe("parseClassifierOutput", () => {
     expect(result.decision).toBe("coordinator")
     expect(result.confidence).toBe("low")
   })
+
+  test("json: extracts JSON from markdown fence ```json...```", () => {
+    const raw = '```json\n{"decision": "coordinator", "confidence": "high", "reason": "ok"}\n```'
+    const result = parseClassifierOutput(raw, "json")
+    expect(result.decision).toBe("coordinator")
+  })
+
+  test("json: extracts JSON with surrounding prose", () => {
+    const raw = 'Here is the classification:\n{"decision": "single", "confidence": "high", "reason": "simple"}\nHope this helps!'
+    const result = parseClassifierOutput(raw, "json")
+    expect(result.decision).toBe("single")
+    expect(result.confidence).toBe("high")
+  })
+
+  test("json: handles bare fence without language tag", () => {
+    const raw = '```\n{"decision": "single", "confidence": "low", "reason": "x"}\n```'
+    const result = parseClassifierOutput(raw, "json")
+    expect(result.decision).toBe("single")
+  })
 })

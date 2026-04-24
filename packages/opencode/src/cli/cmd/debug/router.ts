@@ -6,7 +6,7 @@ import { cmd } from "../cmd"
 import { route } from "../../../agent/router"
 import { RealWorkspaceAnalyzer } from "../../../agent/router/workspace-analyzer"
 import { classifyArchetype, extractP1GlobMentions, extractP2PackageMentions, extractP3ScopeKeywords, extractP4ConjunctionChains, extractP5ExplicitPaths, computeCodebaseSignals, computeComposite } from "../../../agent/router/scorer"
-import { buildClassifier } from "../../../agent/router/build-classifier"
+import { buildClassifier, LAST_RESOLVED_MODEL, LAST_CLASSIFIER_ERROR } from "../../../agent/router/build-classifier"
 import defaultWeights from "../../../agent/router/weights.json"
 import type { RouterConfig } from "../../../agent/router/types"
 
@@ -75,6 +75,15 @@ export const DebugRouterCommand = cmd({
             }),
           )
         : undefined
+
+      if (full && !classifier && !json) {
+        process.stderr.write("⚠ --full requested but no small model could be resolved. Tiebreaker will be skipped.\n")
+        process.stderr.write("  Check: no provider has a small model matching [claude-haiku, gpt-5-nano, gemini-flash].\n")
+      }
+      if (full && classifier && !json) {
+        const m = LAST_RESOLVED_MODEL
+        if (m) process.stderr.write(`  Tiebreaker will use: ${m.providerID}/${m.modelID}\n`)
+      }
 
       const decision = await route({
         prompt,
@@ -149,7 +158,13 @@ export const DebugRouterCommand = cmd({
       if (decision.signals.llmTiebreakerUsed) {
         line(`Tiebreaker: INVOKED (latency ${decision.signals.llmTiebreakerLatencyMs}ms)`)
       } else if (composite.primary >= config.bands.leanSingleMax && composite.primary < config.bands.uncertainMax) {
-        line(full ? `Tiebreaker: attempted but no classifier resolved` : `Tiebreaker: would invoke (use --full to actually call the LLM)`)
+        if (!full) {
+          line(`Tiebreaker: would invoke (use --full to actually call the LLM)`)
+        } else if (!classifier) {
+          line(`Tiebreaker: attempted but no small model was available`)
+        } else {
+          line(`Tiebreaker: invoked but failed${LAST_CLASSIFIER_ERROR ? " — " + LAST_CLASSIFIER_ERROR : ""}`)
+        }
       } else {
         line(`Tiebreaker: not needed (decision is clearly ${decision.mode})`)
       }

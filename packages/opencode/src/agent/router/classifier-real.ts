@@ -50,11 +50,11 @@ export class RealClassifier implements LLMClassifier {
     try {
       return parseClassifierOutput(raw, "json")
     } catch {
-      // Retry once with error context — provider sometimes recovers with hint.
       try {
         return parseClassifierOutput(raw, "regex")
       } catch {
-        throw new Error(`classifier malformed output: ${raw.slice(0, 100)}`)
+        // Include the actual raw response (truncated) so debug output is actionable
+        throw new Error(`classifier malformed output: ${raw.slice(0, 200).replace(/\n/g, " ")}`)
       }
     }
   }
