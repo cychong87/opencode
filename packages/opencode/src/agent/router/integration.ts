@@ -38,6 +38,15 @@ export interface SelectAgentResult {
   decision: RoutingDecision | null
   /** Raw hints — caller composes into coordinator system prompt via composeCoordinatorPrompt. */
   hints?: HintBlock
+  /**
+   * Human-readable announce line describing the routing decision.
+   * Callers should surface this in the UI (e.g. as a synthetic text part, toast, or stderr).
+   * Examples:
+   *   "→ Routing: coordinator · 5 packages, 500 files"
+   *   "→ Routing: single · single-package edit"
+   *   "→ Routing: coordinator (manual override)"
+   */
+  announceText: string
 }
 
 // Module-level singletons — one per process
@@ -73,18 +82,21 @@ export async function selectAgentMode(input: SelectAgentInput): Promise<SelectAg
         }
       } catch { /* non-fatal */ }
 
-      emitAnnounce(formatOverride("coordinator"), input.announceOpts)
+      const announceText = formatOverride("coordinator")
+      emitAnnounce(announceText, input.announceOpts)
       await writeTelemetry(input, "override", null, "mutating-narrow", null)
       return {
         mode: "coordinator",
         agentName: "coordinator",
         decision: null,
         hints,
+        announceText,
       }
     }
-    emitAnnounce(formatOverride(input.userOverride), input.announceOpts)
+    const announceText = formatOverride(input.userOverride)
+    emitAnnounce(announceText, input.announceOpts)
     await writeTelemetry(input, "override", null, "mutating-narrow", null)
-    return { mode: "other", agentName: input.userOverride, decision: null }
+    return { mode: "other", agentName: input.userOverride, decision: null, announceText }
   }
 
   // 2. Turn 2+ inheritance
@@ -103,12 +115,14 @@ export async function selectAgentMode(input: SelectAgentInput): Promise<SelectAg
     })
 
     if (inheritResult.inherit) {
-      emitAnnounce(formatInherited(prior), input.announceOpts)
+      const announceText = formatInherited(prior)
+      emitAnnounce(announceText, input.announceOpts)
       await writeTelemetry(input, "inherited", prior, classifyArchetype(input.prompt, defaultWeights.mutationVerbs), null)
       return {
         mode: prior.mode,
         agentName: prior.mode === "coordinator" ? "coordinator" : "default",
         decision: prior,
+        announceText,
       }
     }
     // Escape fired — fall through to full routing
@@ -130,7 +144,8 @@ export async function selectAgentMode(input: SelectAgentInput): Promise<SelectAg
     errorBudget.bannerShown()
   }
 
-  emitAnnounce(formatRouted(decision), input.announceOpts)
+  const announceText = formatRouted(decision)
+  emitAnnounce(announceText, input.announceOpts)
   sessionStore.set(input.sessionId, decision)
   await writeTelemetry(input, "routed", decision, classifyArchetype(input.prompt, defaultWeights.mutationVerbs), decision.fallbackPath)
 
@@ -148,6 +163,7 @@ export async function selectAgentMode(input: SelectAgentInput): Promise<SelectAg
     agentName: decision.mode === "coordinator" ? "coordinator" : "default",
     decision,
     hints,
+    announceText,
   }
 }
 

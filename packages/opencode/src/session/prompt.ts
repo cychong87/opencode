@@ -932,6 +932,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       let routerHints:
         | { suggestedWorkerCount?: number; suggestedPartition?: string[][]; triggerReasons: string[] }
         | undefined
+      let routeAnnounceText: string | undefined
       if (isAutoRoute) {
         const ctx = yield* InstanceState.context
         const msgsExit = yield* sessions.messages({ sessionID: input.sessionID }).pipe(Effect.exit)
@@ -953,6 +954,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           }
           if (routeResult?.hints) {
             routerHints = routeResult.hints
+          }
+          if (routeResult?.announceText) {
+            routeAnnounceText = routeResult.announceText
           }
         }
       }
@@ -1310,6 +1314,21 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           part,
         })
       })
+
+      // If auto-routing fired, prepend a synthetic text part announcing the decision.
+      // Visible in CLI (stderr + transcript), TUI (toast + transcript), Desktop (transcript).
+      // Marked synthetic so it's treated as a system note, not user input.
+      if (routeAnnounceText) {
+        const announcePart: MessageV2.Part = {
+          id: PartID.ascending(),
+          messageID: info.id,
+          sessionID: input.sessionID,
+          type: "text",
+          text: routeAnnounceText,
+          synthetic: true,
+        }
+        parts.unshift(announcePart)
+      }
 
       yield* sessions.updateMessage(info)
       for (const part of parts) yield* sessions.updatePart(part)
