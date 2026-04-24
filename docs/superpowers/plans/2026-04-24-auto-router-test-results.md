@@ -281,11 +281,21 @@ $ bun test test/router/integration.test.ts -t "H.2"
 
 These are data points the plan explicitly asked us to record for future iterations. Neither is a feature blocker.
 
-**Finding 1 — Pyproject names aren't extracted by the analyzer.**
+**Finding 1 — Pyproject names weren't extracted by the analyzer. (FIXED in v1.5.)**
 
-`RealWorkspaceAnalyzer.analyze` reads the `name` field from `package.json` but not from `pyproject.toml` (see `workspace-analyzer.ts:68` — the `mp.endsWith("package.json")` branch is the only one that calls `readManifestName`). On the polyglot fixture, the analyzer's package list therefore contains `@fixture/frontend` (npm name), `packages/frontend`, and `packages/backend`, but not `fixture-backend` (the pyproject name). P2 can only match via the directory paths or the scoped npm name.
+Originally, `RealWorkspaceAnalyzer.analyze` only read the `name` field from `package.json`, not from `pyproject.toml`. On the polyglot fixture, the analyzer's package list contained `@fixture/frontend` (npm name), `packages/frontend`, and `packages/backend`, but not `fixture-backend` (the pyproject name). P2 could only match via directory paths or the scoped npm name.
 
-In practice we still reach coordinator on polyglot tasks via P3 scope keywords (`refactor ... across ... throughout ... every`) + the multi-language codebase signals. But the P2 signal is under-weighted on the Python side. Fixing this would be a ~15-line change to parse `[project].name` out of pyproject.toml.
+This has now been fixed: `readManifestName` dispatches on extension and a small `readPyprojectName` helper handles both PEP 621 `[project].name` and Poetry `[tool.poetry].name`, preferring the former.
+
+End-to-end impact, measured on the same polyglot fixture + prompt:
+
+| Signal | Before | After |
+|---|---|---|
+| P2 (packages mentioned) | 1 | 2 |
+| C4 (cross-package breadth) | 0 | 2 |
+| primary score | 3.89 | 4.55 |
+
+C4 now fires for polyglot workloads, which is the intended behavior.
 
 **Finding 2 — "port" is not in the mutation-verb list.**
 
@@ -407,8 +417,9 @@ On a single-package repo, the AND-gate (`primaryScore = min(promptScore, codebas
 - ~~Partial Phase C pass for false-positive rate data~~ ✓ done — 15/15 match, zero obvious misses
 - ~~Phase D integration-level escape coverage~~ ✓ done
 - ~~H.2 permission-denied integration~~ ✓ done
-- (optional) Add pyproject name extraction to `RealWorkspaceAnalyzer` — closes one calibration gap found in Phase C
+- ~~Add pyproject name extraction to `RealWorkspaceAnalyzer`~~ ✓ done — closes the polyglot P2 calibration gap from Phase C
 - (optional) Build Prereq 2 fault-inject env var for H.3 ops-debugging use
+- (optional) Expand mutation-verb list with semantically-mutating verbs like "port" — the second Phase C calibration finding
 
 ---
 
@@ -433,3 +444,4 @@ On a single-package repo, the AND-gate (`primaryScore = min(promptScore, codebas
 - v1.2 — 2026-04-24 — Phase C real-repo smoke complete (15/15 match); 2 calibration findings recorded (pyproject names not extracted; "port" not in mutation-verb list).
 - v1.3 — 2026-04-24 — Phase G complete (G.2 added; G.3 already covered by pre-existing `telemetry.test.ts`). Now 182 router tests.
 - v1.4 — 2026-04-24 — Phase D (integration-level) + H.2 complete. 4 new tests added: drift, short-follow, coord→read-only, permission-denied. Now 186 router tests.
+- v1.5 — 2026-04-24 — Closed Phase C calibration finding #1: analyzer now extracts pyproject.toml names (PEP 621 `[project].name` + Poetry `[tool.poetry].name`). 8 new tests. Now 194 router tests.

@@ -64,8 +64,11 @@ export class RealWorkspaceAnalyzer implements WorkspaceAnalyzer {
         seenPackageNames.add(dirPath)
         packages.push(dirPath)
       }
-      // Try to extract the scoped npm name from package.json
-      if (mp.endsWith("package.json")) {
+      // Try to extract the declared package name from the manifest.
+      // Covers npm package.json (`name` field) and Python pyproject.toml
+      // (`[project].name` per PEP 621, or `[tool.poetry].name` for Poetry projects).
+      // Other manifest types fall through and are only identified by directory path.
+      if (mp.endsWith("package.json") || mp.endsWith("pyproject.toml")) {
         const pkgName = await readManifestName(path.join(workspaceRoot, mp))
         if (pkgName && !seenPackageNames.has(pkgName)) {
           seenPackageNames.add(pkgName)
@@ -110,14 +113,40 @@ export class RealWorkspaceAnalyzer implements WorkspaceAnalyzer {
 async function readManifestName(manifestPath: string): Promise<string | undefined> {
   try {
     const content = await fs.readFile(manifestPath, "utf-8")
+    if (manifestPath.endsWith("pyproject.toml")) {
+      return readPyprojectName(content)
+    }
     const parsed = JSON.parse(content) as { name?: unknown }
     if (typeof parsed.name === "string" && parsed.name.length > 0) {
       return parsed.name
     }
   } catch {
-    // Malformed JSON, missing file, etc. — non-fatal
+    // Malformed content, missing file, etc. — non-fatal
   }
   return undefined
+}
+
+// Minimal pyproject.toml name extractor. Line-oriented scanner covers the
+// PEP 621 `[project].name` and Poetry's `[tool.poetry].name` — the only two
+// forms that show up in practice. Prefers [project] when both are present.
+// Not a full TOML parser: multi-line strings and escapes in `name` would not
+// be handled, but those are vanishingly rare for project names.
+export function readPyprojectName(content: string): string | undefined {
+  const targets = new Set(["project", "tool.poetry"])
+  let currentSection = ""
+  let poetryName: string | undefined
+  for (const raw of content.split("\n")) {
+    const line = raw.replace(/\s*#.*$/, "").trim()
+    const header = line.match(/^\[([^\]]+)\]$/)
+    if (header) { currentSection = header[1]; continue }
+    if (!targets.has(currentSection)) continue
+    const m = line.match(/^name\s*=\s*(?:"([^"]+)"|'([^']+)')\s*$/)
+    if (!m) continue
+    const name = m[1] ?? m[2]
+    if (currentSection === "project") return name
+    poetryName = poetryName ?? name
+  }
+  return poetryName
 }
 
 function isExcludedPath(filePath: string): boolean {

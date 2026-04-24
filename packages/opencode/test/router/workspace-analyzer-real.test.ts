@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test"
 import path from "path"
-import { RealWorkspaceAnalyzer } from "@/agent/router/workspace-analyzer"
+import { RealWorkspaceAnalyzer, readPyprojectName } from "@/agent/router/workspace-analyzer"
 
 const FIXTURES = path.resolve(import.meta.dir, "../../src/agent/router/fixtures/workspaces")
 
@@ -26,6 +26,16 @@ describe("RealWorkspaceAnalyzer", () => {
     const analyzer = new RealWorkspaceAnalyzer()
     const result = await analyzer.analyze(path.join(FIXTURES, "polyglot"))
     expect(result.languageCount).toBe(2)
+  })
+
+  test("polyglot: package name extracted from pyproject.toml", async () => {
+    const analyzer = new RealWorkspaceAnalyzer()
+    const result = await analyzer.analyze(path.join(FIXTURES, "polyglot"))
+    // Name from [project].name in backend/pyproject.toml. Closes the Phase C
+    // calibration gap — previously only the directory path was indexed.
+    expect(result.packages).toContain("backend")
+    // The frontend side (npm) was already indexed; confirm it still is
+    expect(result.packages).toContain("frontend")
   })
 
   test("caches result on second call (same reference)", async () => {
@@ -68,5 +78,63 @@ describe("RealWorkspaceAnalyzer", () => {
     expect(result.packages).toContain("@app/shared")
     // packageCount remains 3 (physical packages), not 6 (the packages list has both aliases)
     expect(result.packageCount).toBe(3)
+  })
+})
+
+describe("readPyprojectName", () => {
+  test("PEP 621 [project].name", () => {
+    const toml = `[project]
+name = "my-pkg"
+version = "0.1.0"
+`
+    expect(readPyprojectName(toml)).toBe("my-pkg")
+  })
+
+  test("Poetry [tool.poetry].name", () => {
+    const toml = `[tool.poetry]
+name = "poetry-pkg"
+version = "0.1.0"
+`
+    expect(readPyprojectName(toml)).toBe("poetry-pkg")
+  })
+
+  test("prefers [project].name over [tool.poetry].name", () => {
+    const toml = `[tool.poetry]
+name = "old-name"
+
+[project]
+name = "new-name"
+`
+    expect(readPyprojectName(toml)).toBe("new-name")
+  })
+
+  test("handles single-quoted name", () => {
+    const toml = `[project]
+name = 'single-quoted'
+`
+    expect(readPyprojectName(toml)).toBe("single-quoted")
+  })
+
+  test("ignores name fields in unrelated sections", () => {
+    const toml = `[tool.mypy]
+name = "not-a-project-name"
+
+[build-system]
+requires = ["setuptools"]
+`
+    expect(readPyprojectName(toml)).toBeUndefined()
+  })
+
+  test("strips line comments before matching", () => {
+    const toml = `[project]
+# this is the project name
+name = "with-comment"  # inline comment
+`
+    expect(readPyprojectName(toml)).toBe("with-comment")
+  })
+
+  test("returns undefined for empty or nameless TOML", () => {
+    expect(readPyprojectName("")).toBeUndefined()
+    expect(readPyprojectName("[project]\nversion = \"0.0.0\"\n")).toBeUndefined()
   })
 })
