@@ -8,6 +8,21 @@ Works across **CLI**, **TUI**, and **Desktop** frontends.
 
 ---
 
+## Reader's guide
+
+This is a long document. Jump to the section you need:
+
+| You are… | Go to |
+|---|---|
+| An end user trying it out | **[Quick start](#quick-start)** |
+| Building a mental model of how it decides | **[How a decision is made](#how-a-decision-is-made)** — walkthroughs with real numbers |
+| Debugging a specific routing decision | **[Inspecting a decision](#inspecting-a-decision-opencode-debug-router)** |
+| Extending or tuning the router | **[For contributors](#for-contributors)** |
+| Reading the full architectural spec | [`docs/superpowers/specs/2026-04-23-opencode-auto-router-design.md`](../../../../../docs/superpowers/specs/2026-04-23-opencode-auto-router-design.md) |
+| Reviewing what has been validated | [`docs/superpowers/plans/2026-04-24-auto-router-test-results.md`](../../../../../docs/superpowers/plans/2026-04-24-auto-router-test-results.md) |
+
+---
+
 ## Quick start
 
 ### For end users
@@ -127,6 +142,49 @@ No tiebreaker invoked — the heuristic is confident. The coordinator receives h
 ---
 
 ## How it works (compressed reference)
+
+### Data flow
+
+```
+                        ┌───────────────────────────────┐
+  user prompt ────────► │        scorer.ts              │
+                        │   P1-P6 extractors            │◄───  weights.json
+  workspace root ──► ┌──┤   C1-C5 extractors            │      (signal weights,
+                     │  │   classifyArchetype()         │       decision bands,
+                     │  │                               │       mutation verbs,
+                     │  │   → primaryScore =            │       scope keywords,
+                     │  │     min(promptScore,          │       tiebreaker config)
+                     │  │         codebaseScore)        │
+                     │  │   → band lookup               │
+                     │  └────────┬──────────────────────┘
+                     │           │
+                     │           ▼
+                     │    band in [1.0, 2.0)?  ──yes──►  classifier-real.ts
+                     │           │ no                       (small LLM, ≤3s timeout,
+                     │           ▼                           wrapped by circuit breaker
+                     │   RoutingDecision                     + rate limit in classifier.ts)
+                     │   { mode, confidence, reason,                  │
+                     │     firedSignals, fingerprint }                │
+                     │           │◄───────────────────────────────────┘
+                     │           ▼
+                     │   integration.ts → selectAgentMode()
+                     │           │
+                     │   (check override → inheritance → route)
+                     │           │
+                     │           ▼
+                     │   agentName: "default" or "coordinator"
+                     │   announceText: "→ Routing: …"
+                     │   hints (if coordinator)
+                     │
+workspace-analyzer.ts │  — file count, package names
+  (called by scorer)  │  — language detection
+  (called by router)  │  — pyproject.toml + package.json
+                     ▼
+             fingerprint.ts
+             (hash of manifests + top-dirs — used for inheritance drift check)
+```
+
+### Path through the pipeline
 
 ```
 User prompt arrives
@@ -262,6 +320,64 @@ OPENCODE_ROUTER_DEBUG=1 OPENCODE_ROUTER_FAULT_INJECT=classifier-malformed openco
 ```
 
 Both env vars must be set for activation (DEBUG alone or FAULT_INJECT alone do nothing). Each mode drives the router down a specific fallback path so you can confirm the corresponding `fallbackPath` telemetry field, error budget banner, and graceful-degradation behavior all work end-to-end.
+
+---
+
+## For contributors
+
+New to the feature and want to extend or tune it? This section is task-oriented — find the thing you want to do and it tells you where to start.
+
+### "I want to…"
+
+| Task | Start here |
+|---|---|
+| Understand why a specific prompt routed the way it did | `opencode debug router --json "<prompt>"` then read fired signals + scores |
+| Add a new **prompt signal** (P7, P8, …) | 1. Write extractor in `scorer.ts` following the `extractP1GlobMentions` pattern · 2. Wire into `router.ts` around line 98 (compute + add to `firedSignals`) · 3. Add weight in `weights.json:promptSignalWeights` · 4. Add unit test in `test/router/scorer-prompt.test.ts` |
+| Add a new **codebase signal** (C6, …) | 1. Extend `computeCodebaseSignals` in `scorer.ts:185` · 2. Add weight in `weights.json:codebaseSignalWeights` · 3. Add unit test in `test/router/scorer-codebase.test.ts` |
+| Tune existing weights or bands | Edit `weights.json`. Run `bun test test/router/calibration.test.ts` to confirm precision/recall/f1 still pass the gate. |
+| Add a new **mutation verb** | Add to `weights.json:mutationVerbs`. Add a test in `scorer-prompt.test.ts` under `describe("P6 classifyArchetype")`. Beware substring collisions — `"port"` was rejected because it matches inside `"export"`, `"import"`, etc. |
+| Add a new **escape condition** | 1. Add branch in `inherit.ts:shouldInherit` · 2. Add test in `test/router/inherit.test.ts` · 3. Add integration test in `test/router/integration.test.ts` following the `"escape …"` pattern |
+| Add support for a **new manifest type** (Cargo.toml, pom.xml, …) for name extraction | Extend `readManifestName` in `workspace-analyzer.ts`. Current pattern dispatches on extension. Pyproject is the existing example. |
+| Add a new **fixture workspace** for testing | Create under `src/agent/router/fixtures/workspaces/<name>/`. Add test case in `test/router/workspace-analyzer-real.test.ts`. |
+| Force a specific failure mode on a live run | Set `OPENCODE_ROUTER_DEBUG=1` + `OPENCODE_ROUTER_FAULT_INJECT=analyzer-fail\|classifier-timeout\|classifier-malformed`. See `fault-inject.ts`. |
+| Trace a decision end-to-end (verbose logging) | Add prints in `router.ts:_route` or run `bun test` on the specific scenario — the test output shows every intermediate value. |
+
+### Test patterns
+
+Most router tests use synthetic inputs rather than live file-system state — fast and deterministic. Two helpers to know:
+
+```ts
+import { FakeWorkspaceAnalyzer } from "@/agent/router/workspace-analyzer"
+import { MockClassifier } from "@/agent/router/classifier"
+
+// Analyzer that returns whatever shape you want, no filesystem:
+const analyzer = new FakeWorkspaceAnalyzer({
+  totalFiles: 500, packageCount: 5,
+  packages: ["@app/auth", "@app/api", "@app/shared"],
+  languageCount: 1, manifestPaths: [], topLevelDirs: ["packages"],
+})
+
+// Classifier with a fixed verdict, bypasses all LLM logic:
+const classifier = new MockClassifier({
+  decision: "coordinator", confidence: "high", reason: "multi-package",
+})
+
+await route({ prompt: "...", workspaceRoot: "/any", analyzer, classifier, ... })
+```
+
+`RealWorkspaceAnalyzer` hits the filesystem and is only used in `*-real.test.ts` files + the actual runtime flow. Prefer Fake for most tests.
+
+### Where the router plugs into the rest of opencode
+
+- **Entry point from session flow**: `packages/opencode/src/session/prompt.ts:createUserMessage` — calls `autoRoute` from `wire.ts`
+- **Entry point from CLI dry-run**: `packages/opencode/src/cli/cmd/debug/router.ts` — uses `route()` directly
+- **Effect wrapper**: `wire.ts:autoRoute` bridges the Promise-based `selectAgentMode` into the Effect-based session pipeline, wraps analyzer + classifier with fault-inject
+- **Agent registry**: `packages/opencode/src/agent/agent.ts` — defines the `coordinator` agent with `team_create` / `spawn_worker` permissions. The router returns `agentName: "coordinator"` to select it.
+
+### Where calibration and telemetry live
+
+- **Calibration fixture**: `fixtures/calibration.json` (50 labeled prompts). Gate thresholds in `gate.json`. CI test: `test/router/calibration.test.ts`.
+- **Daily telemetry**: written to `<workspace>/.opencode/router-decisions-YYYY-MM-DD.jsonl` with hashed prompts. Rotates daily, auto-cleanup after 30 days. See `telemetry.ts`.
 
 ---
 
@@ -411,7 +527,33 @@ bun test test/router/calibration.test.ts
 bun test --timeout 30000
 ```
 
-Currently **210 tests, 0 failures**.
+Currently **214 tests, 0 failures**.
+
+Test-file map:
+
+| File | Covers |
+|---|---|
+| `scorer-prompt.test.ts` | P1-P6 extractors + `classifyArchetype` |
+| `scorer-codebase.test.ts` | C1-C5 extractors + `computeCodebaseSignals` |
+| `scorer-composite.test.ts` | Weighted composite, AND-gate, band lookup |
+| `router.test.ts` | Full `route()` entry point + fallback invariants |
+| `inherit.test.ts` | All 5 escape conditions + priority order |
+| `integration.test.ts` | `selectAgentMode` end-to-end, error budget, D-escapes + H.2 permission-denied |
+| `telemetry.test.ts` | Writer, daily rotation (G.2), 30-day cleanup (G.3) |
+| `classifier.test.ts` | `MockClassifier`, `parseClassifierOutput` |
+| `classifier-real.test.ts` | `RealClassifier` with mocked model |
+| `classifier-resilience.test.ts` | Circuit breaker, rate limit, half-open recovery |
+| `fault-inject.test.ts` | Env-var gating, 3 fault modes |
+| `workspace-analyzer.test.ts` + `-real.test.ts` | `FakeWorkspaceAnalyzer`, `RealWorkspaceAnalyzer`, `readPyprojectName` |
+| `fingerprint.test.ts` | Fingerprint stability + drift |
+| `latency.test.ts` | Cold/warm regression thresholds (Phase A) |
+| `calibration.test.ts` | 50-prompt precision/recall/f1 gate |
+| `announce.test.ts` | Format fns + emit channels |
+| `error-budget.test.ts` | 20-turn rolling banner trigger |
+| `coordinator-hints.test.ts` | Hint composition into coordinator prompt |
+| `compose-prompt.test.ts` | `{{ROUTER_HINTS}}` placeholder injection |
+| `session-store.test.ts` | In-memory decision cache |
+| `version.test.ts` | `routerDecisionVersion` hash stability |
 
 ---
 
